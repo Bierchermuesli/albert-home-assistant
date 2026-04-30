@@ -8,13 +8,23 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 - **Favorites**: Define a list of favorite entities to be shown immediately when the trigger is used without a query.
 - **Domain specific features**:
   - **media_player** Media Control. Extra item with 'now playing' with Cover and title 
-  - **light** On/Off Dimm
+  - **light** On/Off and Dimm
   - **input_number** selection of steps
   - **cover** open/close
 - **Smart URL Switching**: Automatically switches between internal and public URLs based on connectivity.
-- **Blacklisting**: Hide specific entities or states (like `unavailable` or `unknown`) from search results.
-- **MDI Icons**: Automatically fetches and caches Material Design Icons from jsDelivr to match your Home Assistant UI (optional).
-- **Colored Icons**: Active entities (like lights that are 'on') are displayed with colored icons for quick visual feedback.
+- **Entity Filtering and Blacklisting**: Hide specific unwanted entities by regex (like `update\..*` `.*_rssi`) or by states (like `unavailable` or `unknown`) from search results.
+- **MDI Icons**: Automatically fetches and caches Material Design Icons from jsDelivr to match your Home Assistant UI (opt out possible).
+- **Colored Icons**: Active entities (like lights that are 'on') are displayed with colored icons
+
+## Icons
+
+Icon handling is admittedly a bit of a mess - but optimized for speed. The plugin keeps queries non-blocking by layering three sources:
+
+1. **Cache hit** - cached MDI/entity-picture SVG is used immediately.
+2. **Cache miss** - a small bundled fallback set (`icons/`, by domain / device_class / unit) is shown right away, and the missing MDI icon is downloaded from jsDelivr in a background thread. The next query for that entity uses the proper icon.
+3. **Coloring** - "active" entities (e.g. lights that are `on`) are recolored by rewriting `fill` attributes in the SVG and caching the tinted result.
+
+Result: queries never wait on the network, and your personal icon cache fills itself in as you use the plugin. Suggestions for a cleaner approach are welcome - the Albert 5.0 Python API has no built-in SVG tinting primitive, so the manual recolor stays for now.
 
 ## Configuration
 
@@ -29,9 +39,15 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 - Use `ha ` with an empty query to see your favorite entities.
 - Press `Alt` on an item to see additional domain-specific actions (e.g., setting light brightness).
 
+## install
+
+Simple clone to Albert plugin directory and activate in Albert Python Modules Settings. no special python dependencies are required.
+```
+git clone https://github.com/Bierchermuesli/albert-home-assistant.git ~/.local/share/albert/python/plugins/home-assistant
+```
 
 ## Work-in-Progress
 
 - this plugin has some work-in-progress features and may not cover all Home Assistant domains or entity types.
 - feel free to open issues or contribute to the project directly
-- Icon/Coloring is a bit hacky - feedback and PRs welcome
+- Icon/Coloring is a workaround (see [Icons](#icons)). Respect legal and licensing requirements.

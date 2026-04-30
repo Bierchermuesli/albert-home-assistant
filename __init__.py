@@ -41,11 +41,14 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def __init__(self):
         GeneratorQueryHandler.__init__(self)
         PluginInstance.__init__(self)
-        self.icon_path = Path(__file__).parent / "icon.svg"
         self.icons_path = Path(__file__).parent / "icons"
+        self.icon_path = self.icons_path / "home-assistant.svg"
         self.icon_cache_path = Path(self.cacheLocation()) / "icons"
         self.icon_cache_path.mkdir(parents=True, exist_ok=True)
-        
+
+        self._download_lock = threading.Lock()
+        self._pending_downloads = set()
+
         self._init_configuration()
         self._update_headers()
         self.active_url = self._internal_url if self._internal_url else self._public_url
@@ -59,7 +62,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def internal_url(self, value):
         self._internal_url = value.strip().rstrip("/")
         self.writeConfig("internal_url", self._internal_url)
-        self.active_url = self._internal_url
+        self.active_url = self._internal_url or self._public_url
 
     @property
     def public_url(self):
@@ -69,6 +72,8 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def public_url(self, value):
         self._public_url = value.strip().rstrip("/")
         self.writeConfig("public_url", self._public_url)
+        if not self.active_url:
+            self.active_url = self._public_url
         
     @property
     def hass_key(self):
@@ -194,24 +199,48 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             warning(f"Failed to create colored icon for {icon_path.name}: {e}")
             return icon_path
 
+    def _is_hass_url(self, url: str) -> bool:
+        return any(url.startswith(u) for u in (self._internal_url, self._public_url) if u)
+
+    def _background_download(self, key: str, fetch):
+        with self._download_lock:
+            if key in self._pending_downloads:
+                return
+            self._pending_downloads.add(key)
+
+        def _run():
+            try:
+                fetch()
+            finally:
+                with self._download_lock:
+                    self._pending_downloads.discard(key)
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _get_url_icon_path(self, url: str) -> Path | None:
         if not url: return None
-        try:
-            url_hash = hashlib.sha1(url.encode()).hexdigest()
-            cached_path = self.icon_cache_path / url_hash
-            if cached_path.exists():
-                return cached_path
-            
-            if url.startswith('/api/') :
-                url = f"{self.active_url}{url}"
+        url_hash = hashlib.sha1(url.encode()).hexdigest()
+        cached_path = self.icon_cache_path / url_hash
+        if cached_path.exists():
+            return cached_path
 
-            response = requests.get(url, timeout=5, headers=self.headers)
-            if response.status_code == 200:
-                with open(cached_path, 'wb') as f:
-                    f.write(response.content)
-                return cached_path
-        except requests.exceptions.RequestException as e:
-            warning(f"Failed to download entity picture '{url}': {e}")
+        if url.startswith('/api/'):
+            full_url = f"{self.active_url}{url}"
+            headers = self.headers
+        else:
+            full_url = url
+            headers = self.headers if self._is_hass_url(url) else None
+
+        def _fetch():
+            try:
+                response = requests.get(full_url, timeout=5, headers=headers)
+                if response.status_code == 200:
+                    with open(cached_path, 'wb') as f:
+                        f.write(response.content)
+            except requests.exceptions.RequestException as e:
+                warning(f"Failed to download entity picture '{url}': {e}")
+
+        self._background_download(f"url:{url_hash}", _fetch)
         return None
 
     def _get_icon_path(self, entity: dict) -> Path:
@@ -228,15 +257,17 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                 if cached_icon_path.exists():
                     base_icon_path = cached_icon_path
                 else:
-                    try:
-                        url = f"https://cdn.jsdelivr.net/npm/@mdi/svg/svg/{mdi_name}.svg"
-                        response = requests.get(url, timeout=2)
-                        if response.status_code == 200:
-                            with open(cached_icon_path, 'wb') as f:
-                                f.write(response.content)
-                            base_icon_path = cached_icon_path
-                    except requests.exceptions.RequestException as e:
-                        warning(f"Failed to download MDI icon '{mdi_name}': {e}")
+                    def _fetch_mdi(name=mdi_name, dest=cached_icon_path):
+                        try:
+                            url = f"https://cdn.jsdelivr.net/npm/@mdi/svg/svg/{name}.svg"
+                            response = requests.get(url, timeout=5)
+                            if response.status_code == 200:
+                                with open(dest, 'wb') as f:
+                                    f.write(response.content)
+                        except requests.exceptions.RequestException as e:
+                            warning(f"Failed to download MDI icon '{name}': {e}")
+
+                    self._background_download(f"mdi:{mdi_name}", _fetch_mdi)
         
         if not base_icon_path:
             for src in ["device_class","unit_of_measurement","domain"]:
@@ -253,7 +284,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         if state in ["on","playing"] and base_icon_path and base_icon_path.suffix == ".svg":
             return self._get_colored_icon_path(base_icon_path, "#FFC107")
 
-        return base_icon_path
+        return base_icon_path or self.icon_path
 
     def _is_blacklisted(self, entity_id: str) -> bool:
         patterns = [p.strip() for p in self.blacklist.split(',') if p.strip()]
@@ -302,7 +333,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             return entities
 
     def items(self, ctx):
-        if not self.internal_url or not self.hass_key:
+        if not (self.internal_url or self.public_url) or not self.hass_key:
             yield [StandardItem(id=md_name, text="Not configured", subtext="Please set URLs and Access Token. in the settings")]
             return
 
@@ -469,7 +500,9 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             for pct in [20, 40, 60, 80]:
                 actions.append(Action(f"set_{pct}", f"Set to {pct}%", lambda eid=entity_id, p=pct: self._call_service("light.turn_on", {"entity_id": eid, "brightness_pct": p})))
         elif domain == "input_number":
-            min_val, max_val, step = map(float, [attributes.get(k, 0.0) for k in ["min", "max", "step"]])
+            min_val, max_val, step = (float(attributes.get(k, 0.0)) for k in ("min", "max", "step"))
+            if step <= 0 or max_val <= min_val:
+                step = max(max_val - min_val, 1.0)
             value = min_val
             while round(value, 4) <= round(max_val, 4):
                 actions.append(Action(f"set_{value}", f"Set to {value}", lambda eid=entity_id, v=value: self._call_service("input_number.set_value", {"entity_id": eid, "value": v})))
@@ -500,12 +533,13 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             #friendly_name = f"{friendly_name}: {formatted_state}"
             pass
 
-        actions.append(Action("copy_value", f"Copy '{entity_id}'", lambda eid=entity_id: setClipboardText(eid)))
+        mdi_name = attributes.get("icon")
+        actions.append(Action("copy_entity_id", f"Copy '{entity_id}'", lambda eid=entity_id: setClipboardText(eid)))
         actions.append(Action("copy_friendly_name", f"Copy '{friendly_name}'", lambda fn=friendly_name: setClipboardText(fn)))
-        actions.append(Action("copy_id", f"Copy '{state}'", lambda state=state: setClipboardText(state)))
-        actions.append(Action("copy_id", f"Copy '{formatted_state}'", lambda state=state: setClipboardText(state)))
-        actions.append(Action("copy_icon", f"Copy Icon '{icon_path}'", lambda p=icon_path: setClipboardText(p)))
-        actions.append(Action("copy_icon", f"Copy mdi_name '{attributes.get("icon")}'", lambda p=attributes.get("icon"): setClipboardText(p)))
+        actions.append(Action("copy_state", f"Copy '{state}'", lambda v=state: setClipboardText(v)))
+        actions.append(Action("copy_formatted_state", f"Copy '{formatted_state}'", lambda v=formatted_state: setClipboardText(v)))
+        actions.append(Action("copy_icon_path", f"Copy Icon '{icon_path}'", lambda p=icon_path: setClipboardText(str(p) if p else "")))
+        actions.append(Action("copy_mdi_name", f"Copy mdi_name '{mdi_name}'", lambda p=mdi_name: setClipboardText(p or "")))
 
         return StandardItem(
             id=entity_id,
