@@ -35,6 +35,7 @@ Result: queries never wait on the network, and your personal icon cache fills it
 ## Usage
 
 - Use the trigger `ha ` (configurable) followed by the entity name or ID.
+- Start with a verb to act directly: `ha play|pause|next|prev|mute|unmute <filter>`, `ha vol <filter> <pct>`, `ha bright <filter> <pct>`, `ha on|off|toggle <filter>`. Only entities the verb applies to are listed and the verb's action comes first.
 - Type `ha info` to see connection status, option to Toggle internal/External URL and entity statistics.
 - Use `ha ` with an empty query to see your favorite entities.
 - Press `Alt` on an item to see additional domain-specific actions (e.g., setting light brightness).
