@@ -630,7 +630,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def _repeat_action(action_id, text, callable):
         """An action that keeps the Albert window open, for steps one wants to repeat. The
         hide_on_activation argument exists only in newer Python plugin builds; older ones get a
-        plain action and need Shift+Enter to repeat."""
+        plain action that closes the window."""
         try:
             return Action(action_id, text, callable, hide_on_activation=False)
         except TypeError:
