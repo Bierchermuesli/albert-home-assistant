@@ -563,6 +563,16 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         )
 
     @staticmethod
+    def _repeat_action(action_id, text, callable):
+        """An action that keeps the Albert window open, for steps one wants to repeat. The
+        hide_on_activation argument exists only in newer Python plugin builds; older ones get a
+        plain action and need Shift+Enter to repeat."""
+        try:
+            return Action(action_id, text, callable, hide_on_activation=False)
+        except TypeError:
+            return Action(action_id, text, callable)
+
+    @staticmethod
     def _brightness_pct(entity):
         """Current brightness in percent, 0 when off or unknown."""
         if entity.get("state") != "on":
@@ -578,9 +588,9 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         for step in (10, -10):
             target = max(0, min(100, current + step))
             if target != current:
-                actions.append(Action(f"step_{step}", f"{step:+d}% → {target}%",
-                                      partial(self._call_service, "light.turn_on",
-                                              {"entity_id": entity_id, "brightness_pct": target})))
+                actions.append(self._repeat_action(f"step_{step}", f"{step:+d}% → {target}%",
+                                                   partial(self._call_service, "light.turn_on",
+                                                           {"entity_id": entity_id, "brightness_pct": target})))
         for pct in (25, 50, 75, 100):
             actions.append(Action(f"set_{pct}", f"Set to {pct}%",
                                   partial(self._call_service, "light.turn_on", {"entity_id": entity_id, "brightness_pct": pct})))
@@ -594,18 +604,19 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         features = attributes.get("supported_features", 0)
         actions = []
 
-        def add(action_id, label, service, **data):
-            actions.append(Action(action_id, label,
-                                  partial(self._call_service, f"media_player.{service}", {"entity_id": entity_id, **data})))
+        def add(action_id, label, service, repeat=False, **data):
+            make = self._repeat_action if repeat else Action
+            actions.append(make(action_id, label,
+                                partial(self._call_service, f"media_player.{service}", {"entity_id": entity_id, **data})))
 
         if state != "paused" and features & MP_PAUSE:
             add("pause", "Pause", "media_pause")
         if state != "playing" and features & MP_PLAY:
             add("play", "Play", "media_play")
         if features & MP_NEXT_TRACK:
-            add("next", "Next Track", "media_next_track")
+            add("next", "Next Track", "media_next_track", repeat=True)
         if features & MP_PREVIOUS_TRACK:
-            add("prev", "Previous Track", "media_previous_track")
+            add("prev", "Previous Track", "media_previous_track", repeat=True)
         if features & MP_VOLUME_MUTE:
             muted = bool(attributes.get("is_volume_muted"))
             add("mute", "Unmute" if muted else "Mute", "volume_mute", is_volume_muted=not muted)
@@ -614,12 +625,13 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             for step in (10, -10):
                 target = max(0, min(100, current + step))
                 if target != current:
-                    add(f"vol_step_{step}", f"Volume {step:+d}% → {target}%", "volume_set", volume_level=target / 100)
+                    add(f"vol_step_{step}", f"Volume {step:+d}% → {target}%", "volume_set", repeat=True,
+                        volume_level=target / 100)
             for pct in (25, 50, 75, 100):
                 add(f"vol_{pct}", f"Set Volume to {pct}%", "volume_set", volume_level=pct / 100)
         elif features & MP_VOLUME_STEP:
-            add("volume_up", "Volume Up", "volume_up")
-            add("volume_down", "Volume Down", "volume_down")
+            add("volume_up", "Volume Up", "volume_up", repeat=True)
+            add("volume_down", "Volume Down", "volume_down", repeat=True)
         return actions
 
     def _input_number_actions(self, entity):
