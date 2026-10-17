@@ -150,6 +150,33 @@ md_url = "https://github.com/Bierchermuesli/albert-home-assistant"
 md_authors = ["@Bierchermuesli"]
 md_lib_dependencies = ["requests"]
 
+class EntityItem(Item):
+    """An entity result whose subtext and icon follow the plugin's entity cache, so a row that
+    is repainted after a step action shows the new value. Text and actions are fixed."""
+
+    def __init__(self, plugin, entity, actions, completion):
+        Item.__init__(self)
+        self._plugin = plugin
+        self._entity_id = entity["entity_id"]
+        self._entity = entity
+        self._text = plugin._name(entity)
+        self._actions = actions
+        self._completion = completion
+
+    def _current(self):
+        for entity in self._plugin.entities_cache or ():
+            if entity["entity_id"] == self._entity_id:
+                return entity
+        return self._entity
+
+    def id(self): return self._entity_id
+    def text(self): return self._text
+    def subtext(self): return self._plugin._subtext(self._current())
+    def inputActionText(self): return self._completion
+    def icon(self): return Icon.image(str(self._plugin._get_icon_path(self._current())))
+    def actions(self): return self._actions
+
+
 class Plugin(PluginInstance, GeneratorQueryHandler):
     # --- private attributes
     _internal_url = ""
@@ -706,21 +733,20 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         actions.append(Action("copy_entity_id", f"Copy '{entity_id}'", partial(setClipboardText, entity_id)))
         actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
 
-        subtext = f"{domain.replace('_', ' ').title()} is {formatted_state}"
+        return EntityItem(self, entity, actions, f"{completion_prefix} {friendly_name}".strip())
+
+    def _subtext(self, entity):
+        """'Light is On · 55%': domain, state and the value a step changes."""
+        domain = entity["entity_id"].split(".")[0]
+        attributes = entity.get("attributes", {})
+        state = entity.get("state", "unknown")
+        subtext = f"{domain.replace('_', ' ').title()} is {self._format_state(state, attributes.get('unit_of_measurement'))}"
         if domain == "light" and state == "on" and attributes.get("brightness") is not None:
             subtext += f" · {self._brightness_pct(entity)}%"
         elif domain == "media_player" and (volume := attributes.get("volume_level")) is not None:
             muted = " (muted)" if attributes.get("is_volume_muted") else ""
             subtext += f" · {round(volume * 100)}%{muted}"
-
-        return StandardItem(
-            id=entity_id,
-            text=friendly_name,
-            subtext=subtext,
-            input_action_text=f"{completion_prefix} {friendly_name}".strip(),
-            icon_factory=partial(Icon.image, str(self._get_icon_path(entity))),
-            actions=actions
-        )
+        return subtext
 
     # --- icons --------------------------------------------------------------------------------
     #
