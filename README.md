@@ -12,7 +12,7 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
   - **input_number** selection of steps
   - **cover** open/close
 - **Smart URL Switching**: Automatically switches between internal and public URLs based on connectivity.
-- **Entity Filtering and Blacklisting**: Hide specific unwanted entities by regex (like `update\..*` `.*_rssi`) or by states (like `unavailable` or `unknown`) from search results.
+- **Entity Filtering and Blacklisting**: Hide unwanted entities by id with shell wildcards (like `update.*`, `*_rssi`) or by state (like `unavailable`, `unknown`).
 - **MDI Icons**: Automatically fetches and caches Material Design Icons from jsDelivr to match your Home Assistant UI (opt out possible).
 - **Colored Icons**: Active entities (like lights that are 'on') are displayed with colored icons
 
@@ -43,7 +43,7 @@ Result: queries never wait on the network, and your personal icon cache fills it
 
 Simple clone to Albert plugin directory and activate in Albert Python Modules Settings. no special python dependencies are required.
 ```
-git clone https://github.com/Bierchermuesli/albert-home-assistant.git ~/.local/share/albert/python/plugins/home-assistant
+git clone https://github.com/Bierchermuesli/albert-home-assistant.git ~/.local/share/albert/python/plugins/albert-home-assistant
 ```
 
 ## Work-in-Progress

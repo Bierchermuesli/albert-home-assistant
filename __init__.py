@@ -9,6 +9,8 @@ import threading
 from pathlib import Path
 import re
 import time
+from fnmatch import fnmatchcase
+from functools import partial
 import xml.etree.ElementTree as ET
 import hashlib
 
@@ -70,8 +72,8 @@ VALUE_REQUIRED_VERBS = {"vol", "volume", "bright", "brightness"}
 md_name = "Home Assistant"
 md_description = "View and control Home Assistant devices"
 md_license = "MIT"
-md_url = "https://github.com/albertlauncher/albert/tree/main/albert-home-assistant"
-md_authors = ["@bierchermuesli"]
+md_url = "https://github.com/Bierchermuesli/albert-home-assistant"
+md_authors = ["@Bierchermuesli"]
 md_lib_dependencies = ["requests"]
 
 class Plugin(PluginInstance, GeneratorQueryHandler):
@@ -79,7 +81,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     _internal_url = ""
     _public_url = ""
     _hass_key = ""
-    _blacklist = "update.*, button.*, *.test_*, .*_rssi"
+    _blacklist = "update.*, button.*, *.test_*, *_rssi"
     _state_blacklist = "unknown,unavailable"
     _use_mdi_icons = True
     _cache_seconds = 30
@@ -146,6 +148,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def blacklist(self, value):
         self._blacklist = value
         self.writeConfig("blacklist", value)
+        self.blacklist_patterns = self._split_list(value)
         
     @property
     def state_blacklist(self):
@@ -155,7 +158,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def state_blacklist(self, value):
         self._state_blacklist = value
         self.writeConfig("state_blacklist", value)
-        self.state_blacklist_items = {s.strip() for s in value.split(',')}
+        self.state_blacklist_items = set(self._split_list(value))
 
     @property
     def use_mdi_icons(self):
@@ -183,8 +186,13 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def favorites(self, value):
         self._favorites = value
         self.writeConfig("favorites", value)
-        self.favorite_items = {s.strip() for s in value.split(',')}
-        
+        self.favorite_items = set(self._split_list(value))
+
+    @staticmethod
+    def _split_list(value):
+        """Items of a comma (or whitespace) separated setting."""
+        return [v for v in re.split(r"[,\s]+", value) if v]
+
     def _init_configuration(self):
         """Load settings from config file or set defaults."""
         for key, type, default in [
@@ -204,8 +212,9 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             else:
                 setattr(self, f"_{key}", conf)
         
-        self.state_blacklist_items = {s.strip() for s in self._state_blacklist.split(',')}
-        self.favorite_items = {s.strip() for s in self._favorites.split(',')}
+        self.blacklist_patterns = self._split_list(self._blacklist)
+        self.state_blacklist_items = set(self._split_list(self._state_blacklist))
+        self.favorite_items = set(self._split_list(self._favorites))
     
     def configWidget(self):
         return [
@@ -222,10 +231,17 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             {"type": "label", "text": "Comma-separated list of favorite entity IDs to show on an empty query."},
             {"type": "label", "text": "<b>Blacklists</b>"},
             {"type": "lineedit", "label": "Entity ID Blacklist", "property": "blacklist"},
-            {"type": "label", "text": "Comma-separated entities to hide. Wildcards (*) are supported. E.g.: <i>update.*, sensor.*_rssi</i>"},
+            {"type": "label", "text": "Comma-separated entity ids to hide, shell wildcards (* ? [..]). E.g.: <i>update.*, *_rssi</i>"},
             {"type": "lineedit", "label": "State Blacklist", "property": "state_blacklist"},
             {"type": "label", "text": "Comma-separated states to hide. E.g.: <i>unknown, unavailable</i>"},
         ]
+
+    def _plugin_icon(self):
+        return Icon.image(str(self.icon_path))
+
+    def _error_item(self, e):
+        return StandardItem(id="error", text="API Request Error", subtext=str(e),
+                            icon_factory=self._plugin_icon)
 
     def _update_headers(self):
         self.headers = {"Authorization": f"Bearer {self.hass_key}", "content-type": "application/json"}
@@ -323,13 +339,10 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                     self._background_download(f"mdi:{mdi_name}", _fetch_mdi)
         
         if not base_icon_path:
-            for src in ["device_class","unit_of_measurement","domain"]:
-                if attributes.get(src):
-                    test_path = self.icons_path / f"{attributes.get(src)}.svg"
-                    if test_path.exists():
-                        base_icon_path = test_path
-                        break
-                    info(f"Attribute '{src}' icon not found: {test_path}")
+            for name in (attributes.get("device_class"), attributes.get("unit_of_measurement"), domain):
+                if name and (self.icons_path / f"{name}.svg").exists():
+                    base_icon_path = self.icons_path / f"{name}.svg"
+                    break
 
         if domain == "media_player" and state in ["playing", "paused", "stopped"]:
             base_icon_path = self.icons_path / f"speaker-{state}.svg"
@@ -340,12 +353,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         return base_icon_path or self.icon_path
 
     def _is_blacklisted(self, entity_id: str) -> bool:
-        patterns = [p.strip() for p in self.blacklist.split(',') if p.strip()]
-        for pattern in patterns:
-            regex = re.escape(pattern).replace('\\*', '.*')
-            if re.fullmatch(regex, entity_id): return True
-        return False
-
+        return any(fnmatchcase(entity_id, pattern) for pattern in self.blacklist_patterns)
 
     def _toggle_active_url(self):
         if not (self._internal_url and self._public_url):
@@ -387,7 +395,8 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
 
     def items(self, ctx):
         if not (self.internal_url or self.public_url) or not self.hass_key:
-            yield [StandardItem(id=md_name, text="Not configured", subtext="Please set URLs and Access Token. in the settings")]
+            yield [StandardItem(id=md_name, text="Not configured", subtext="Set the URL and access token in the plugin settings",
+                                icon_factory=self._plugin_icon)]
             return
 
         stripped_query = ctx.query.strip()
@@ -400,7 +409,8 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             if self.favorite_items:
                 yield self._run_favorites_search()
             else:
-                yield [StandardItem(id=md_name, text=md_name, subtext=f"Using: {self.active_url}", actions=[Action("url", "Open Home Assistant", lambda: openUrl(self.active_url))])]
+                yield [StandardItem(id=md_name, text=md_name, subtext=f"Using: {self.active_url}", icon_factory=self._plugin_icon,
+                                    actions=[Action("url", "Open Home Assistant", lambda: openUrl(self.active_url))])]
             return
 
         if verb_match := self._parse_verb_query(stripped_query):
@@ -483,7 +493,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                 if item := self._build_item(entity, prepend_actions=prepend, completion_prefix=verb):
                     results.append(item)
         except requests.exceptions.RequestException as e:
-            results.append(StandardItem(id="error", text="API Request Error", subtext=str(e)))
+            results.append(self._error_item(e))
         return results
 
     def _run_info_query(self):
@@ -511,23 +521,26 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                 id="info_url",
                 text=f"Active URL: {self.active_url}",
                 subtext=subtext,
+                icon_factory=self._plugin_icon,
                 actions=toggle_actions
             ))
 
             results.append(StandardItem(
                 id="info_total",
                 text=f"Total entities: {total_entities}",
-                subtext="Number of entities exposed by the Home Assistant API"
+                subtext="Number of entities exposed by the Home Assistant API",
+                icon_factory=self._plugin_icon
             ))
 
             results.append(StandardItem(
                 id="info_visible",
                 text=f"Visible entities: {visible_entities}",
-                subtext="Entities remaining after applying blacklists"
+                subtext="Entities remaining after applying blacklists",
+                icon_factory=self._plugin_icon
             ))
 
         except requests.exceptions.RequestException as e:
-            results.append(StandardItem(id="error", text="API Request Error", subtext=str(e)))
+            results.append(self._error_item(e))
 
         return results
 
@@ -552,7 +565,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                         results.append(now_playing_item)
 
         except requests.exceptions.RequestException as e:
-            results.append(StandardItem(id="error", text="API Request Error", subtext=str(e)))
+            results.append(self._error_item(e))
         
         return results
 
@@ -568,7 +581,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                     if now_playing_item := self._build_now_playing_item(entity):
                         results.append(now_playing_item)
         except requests.exceptions.RequestException as e:
-            results.append(StandardItem(id="error", text="API Request Error", subtext=str(e)))
+            results.append(self._error_item(e))
 
         return results
 
@@ -603,9 +616,8 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         return StandardItem(
             id=f"now_playing_{entity['entity_id']}", text=text, subtext="now playing",
             icon_factory=lambda p=icon_path: Icon.image(str(p)),
-            actions=[Action("copy", "Copy Title", lambda t=title: setClipboardText(t)),
-                     Action("copy", "Copy Artist", lambda t=artist: setClipboardText(t)),
-                    ]
+            actions=[Action("copy_title", "Copy Title", partial(setClipboardText, title)),
+                     Action("copy_artist", "Copy Artist", partial(setClipboardText, artist or ""))]
         )
 
     def _build_item(self, entity: dict, prepend_actions=(), completion_prefix=""):
