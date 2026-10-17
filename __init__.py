@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import hashlib
 
 md_iid = "5.0"
-md_version = "3.6"
+md_version = "3.7"
 
 # Verb-first command mode: the first word of the query is a verb that restricts the candidate
 # domains, so "play office" never lists office lamps. (verb, domain) -> (service, label).
@@ -73,6 +73,72 @@ DOMAIN_ACTIONS = {
               ("close", "Close", "cover.close_cover", {})],
 }
 
+# Default icons as the Home Assistant frontend derives them when an entity has no icon of its
+# own: by domain, by sensor device_class, and by binary_sensor device_class and state.
+# All names are Material Design Icons.
+DOMAIN_ICONS = {
+    "alarm_control_panel": "shield-home", "automation": "robot", "binary_sensor": "radiobox-blank",
+    "button": "gesture-tap-button", "calendar": "calendar", "camera": "video", "climate": "thermostat",
+    "counter": "counter", "cover": "window-shutter", "date": "calendar", "datetime": "calendar-clock",
+    "device_tracker": "account", "event": "eye-check", "fan": "fan", "group": "google-circles-communities",
+    "humidifier": "air-humidifier", "image": "image", "input_boolean": "toggle-switch-variant",
+    "input_button": "gesture-tap-button", "input_datetime": "calendar-clock", "input_number": "ray-vertex",
+    "input_select": "format-list-bulleted", "input_text": "form-textbox", "lawn_mower": "robot-mower",
+    "light": "lightbulb", "lock": "lock", "media_player": "speaker", "notify": "message", "number": "ray-vertex",
+    "person": "account", "plant": "flower", "remote": "remote", "scene": "palette", "schedule": "calendar-clock",
+    "script": "script-text", "select": "format-list-bulleted", "sensor": "eye", "siren": "bullhorn",
+    "sun": "white-balance-sunny", "switch": "toggle-switch-variant", "text": "form-textbox", "time": "clock",
+    "timer": "timer-outline", "todo": "clipboard-list", "update": "package", "vacuum": "robot-vacuum",
+    "valve": "pipe-valve", "water_heater": "water-boiler", "weather": "weather-partly-cloudy",
+    "zone": "map-marker-radius",
+}
+
+SENSOR_CLASS_ICONS = {
+    "apparent_power": "flash", "aqi": "air-filter", "atmospheric_pressure": "thermometer-lines",
+    "battery": "battery", "carbon_dioxide": "molecule-co2", "carbon_monoxide": "molecule-co",
+    "current": "current-ac", "data_rate": "transmission-tower", "data_size": "database", "date": "calendar",
+    "distance": "arrow-left-right", "duration": "progress-clock", "energy": "lightning-bolt",
+    "energy_storage": "car-battery", "frequency": "sine-wave", "gas": "meter-gas", "humidity": "water-percent",
+    "illuminance": "brightness-5", "irradiance": "sun-wireless", "moisture": "water-percent", "monetary": "cash",
+    "nitrogen_dioxide": "molecule", "nitrogen_monoxide": "molecule", "nitrous_oxide": "molecule", "ozone": "molecule",
+    "ph": "ph", "pm1": "molecule", "pm10": "molecule", "pm25": "molecule", "power": "flash",
+    "power_factor": "angle-acute", "precipitation": "weather-rainy", "precipitation_intensity": "weather-pouring",
+    "pressure": "gauge", "reactive_power": "flash", "signal_strength": "wifi", "sound_pressure": "ear-hearing",
+    "speed": "speedometer", "sulphur_dioxide": "molecule", "temperature": "thermometer", "timestamp": "clock",
+    "volatile_organic_compounds": "molecule", "voltage": "sine-wave", "volume": "car-coolant-level",
+    "volume_storage": "storage-tank", "water": "water", "weight": "weight", "wind_speed": "weather-windy",
+}
+
+# binary_sensor device_class -> (icon when off, icon when on)
+BINARY_SENSOR_CLASS_ICONS = {
+    "battery": ("battery", "battery-outline"), "battery_charging": ("battery", "battery-charging"),
+    "carbon_monoxide": ("smoke-detector", "smoke-detector-alert"), "cold": ("thermometer", "snowflake"),
+    "connectivity": ("close-network-outline", "check-network-outline"), "door": ("door-closed", "door-open"),
+    "garage_door": ("garage", "garage-open"), "gas": ("check-circle", "alert-circle"),
+    "heat": ("thermometer", "fire"), "light": ("brightness-5", "brightness-7"), "lock": ("lock", "lock-open"),
+    "moisture": ("water-off", "water"), "motion": ("motion-sensor-off", "motion-sensor"),
+    "moving": ("arrow-right", "arrow-right"), "occupancy": ("home-outline", "home"),
+    "opening": ("square", "square-outline"), "plug": ("power-plug-off", "power-plug"),
+    "power": ("power-plug-off", "power-plug"), "presence": ("home-outline", "home"),
+    "problem": ("check-circle", "alert-circle"), "running": ("stop", "play"), "safety": ("check-circle", "alert-circle"),
+    "smoke": ("smoke-detector-variant", "smoke-detector-variant-alert"), "sound": ("music-note-off", "music-note"),
+    "tamper": ("check-circle", "alert-circle"), "update": ("package", "package-up"),
+    "vibration": ("crop-portrait", "vibrate"), "window": ("window-closed", "window-open"),
+}
+
+# A few state dependent ones.
+STATE_ICONS = {
+    ("binary_sensor", "on"): "checkbox-marked-circle",
+    ("cover", "open"): "window-shutter-open",
+    ("input_boolean", "off"): "toggle-switch-variant-off", ("switch", "off"): "toggle-switch-variant-off",
+    ("media_player", "playing"): "speaker-play", ("media_player", "paused"): "speaker-pause",
+    ("media_player", "off"): "speaker-off",
+    ("update", "on"): "package-up",
+}
+
+ACTIVE_STATES = {"on", "playing", "open"}
+ACTIVE_COLOR = "#FFC107"  # amber, as in the Home Assistant UI
+
 # media_player supported_features bits, see homeassistant.components.media_player.const
 MP_PAUSE, MP_VOLUME_SET, MP_VOLUME_MUTE = 1, 4, 8
 MP_PREVIOUS_TRACK, MP_NEXT_TRACK, MP_VOLUME_STEP, MP_PLAY = 16, 32, 1024, 16384
@@ -104,7 +170,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def __init__(self):
         GeneratorQueryHandler.__init__(self)
         PluginInstance.__init__(self)
-        self.icons_path = Path(__file__).parent / "icons"
+        self.icons_path = Path(__file__).parent / "icons" / "mdi"  # bundled seed, see Icons below
         self.icon_path = self.icons_path / "home-assistant.svg"
         self.icon_cache_path = Path(self.cacheLocation()) / "icons"
         self.icon_cache_path.mkdir(parents=True, exist_ok=True)
@@ -233,7 +299,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             {"type": "label", "text": "<a href=\"https://developers.home-assistant.io/docs/auth_api/#long-lived-access-token\">Click here for documentation on creating tokens.</a>"},
             {"type": "label", "text": "<b>Appearance & Behavior</b>"},
             {"type": "spinbox", "label": "Entity cache duration (seconds)", "property": "cache_seconds", "widget_properties": {"minimum": 5, "maximum": 300}},
-            {"type": "checkbox", "label": "Use MDI icons from Home Assistant", "property": "use_mdi_icons"},
+            {"type": "checkbox", "label": "Download missing icons from jsDelivr (MDI)", "property": "use_mdi_icons"},
             {"type": "label", "text": "<b>Favorites</b>"},
             {"type": "lineedit", "label": "Favorite Entities", "property": "favorites", "widget_properties": {"placeholderText": "light.living_room, switch.desk_fan, ..."}},
             {"type": "label", "text": "Comma-separated list of favorite entity IDs to show on an empty query."},
@@ -259,22 +325,6 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
 
     def synopsis(self, query):
         return "<filter> | play|pause|next|prev|mute|unmute <filter> | vol|bright <filter> <pct> | on|off|toggle <filter> | info"
-
-    def _get_colored_icon_path(self, icon_path: Path, color: str) -> Path:
-        colored_icon_path = self.icon_cache_path / f"{icon_path.stem}-{color}.svg"
-        if colored_icon_path.exists():
-            return colored_icon_path
-        
-        try:
-            ET.register_namespace("", "http://www.w3.org/2000/svg")
-            tree = ET.parse(icon_path)
-            for path in tree.findall(".//{http://www.w3.org/2000/svg}path"):
-                path.set("fill", color)
-            tree.write(colored_icon_path)
-            return colored_icon_path
-        except Exception as e:
-            warning(f"Failed to create colored icon for {icon_path.name}: {e}")
-            return icon_path
 
     def _is_hass_url(self, url: str) -> bool:
         return any(url.startswith(u) for u in (self._internal_url, self._public_url) if u)
@@ -319,46 +369,6 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
 
         self._background_download(f"url:{url_hash}", _fetch)
         return None
-
-    def _get_icon_path(self, entity: dict) -> Path:
-        attributes = entity.get("attributes", {})
-        domain = entity.get("entity_id", "").split('.')[0]
-        state = entity.get("state")
-        
-        base_icon_path = None
-
-        if self.use_mdi_icons and (mdi_icon := attributes.get("icon")):
-            if mdi_icon.startswith("mdi:"):
-                mdi_name = mdi_icon.replace("mdi:", "")
-                cached_icon_path = self.icon_cache_path / f"{mdi_name}.svg"
-                if cached_icon_path.exists():
-                    base_icon_path = cached_icon_path
-                else:
-                    def _fetch_mdi(name=mdi_name, dest=cached_icon_path):
-                        try:
-                            url = f"https://cdn.jsdelivr.net/npm/@mdi/svg/svg/{name}.svg"
-                            response = requests.get(url, timeout=5)
-                            if response.status_code == 200:
-                                with open(dest, 'wb') as f:
-                                    f.write(response.content)
-                        except requests.exceptions.RequestException as e:
-                            warning(f"Failed to download MDI icon '{name}': {e}")
-
-                    self._background_download(f"mdi:{mdi_name}", _fetch_mdi)
-        
-        if not base_icon_path:
-            for name in (attributes.get("device_class"), attributes.get("unit_of_measurement"), domain):
-                if name and (self.icons_path / f"{name}.svg").exists():
-                    base_icon_path = self.icons_path / f"{name}.svg"
-                    break
-
-        if domain == "media_player" and state in ["playing", "paused", "stopped"]:
-            base_icon_path = self.icons_path / f"speaker-{state}.svg"
-
-        if state in ["on","playing"] and base_icon_path and base_icon_path.suffix == ".svg":
-            return self._get_colored_icon_path(base_icon_path, "#FFC107")
-
-        return base_icon_path or self.icon_path
 
     def _is_blacklisted(self, entity_id: str) -> bool:
         return any(fnmatchcase(entity_id, pattern) for pattern in self.blacklist_patterns)
@@ -635,3 +645,73 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             icon_factory=partial(Icon.image, str(self._get_icon_path(entity))),
             actions=actions
         )
+
+    # --- icons --------------------------------------------------------------------------------
+    #
+    # Every icon is a Material Design Icon, named like Home Assistant names it: the entity's own
+    # icon attribute, or the default the HA frontend would derive from domain, device_class and
+    # state. A name resolves to the cached download, else to the bundled seed in icons/mdi, else
+    # the download starts in the background and the HA logo stands in until it is there. Active
+    # entities get a tinted copy, there is no tinting primitive in the Albert API.
+
+    def _mdi_name(self, entity: dict) -> str:
+        attributes = entity.get("attributes", {})
+        icon = attributes.get("icon") or ""
+        if icon.startswith("mdi:"):
+            return icon[4:]
+        domain = entity.get("entity_id", "").split(".")[0]
+        state = entity.get("state")
+        device_class = attributes.get("device_class")
+        if domain == "binary_sensor" and device_class in BINARY_SENSOR_CLASS_ICONS:
+            return BINARY_SENSOR_CLASS_ICONS[device_class][1 if state == "on" else 0]
+        if domain == "sensor" and device_class in SENSOR_CLASS_ICONS:
+            return SENSOR_CLASS_ICONS[device_class]
+        if domain == "media_player" and device_class == "tv":
+            return "television"
+        return STATE_ICONS.get((domain, state)) or DOMAIN_ICONS.get(domain) or "home-assistant"
+
+    def _mdi_icon_path(self, name: str) -> Path | None:
+        """The SVG for an MDI name: cached download, bundled seed, or None while downloading."""
+        cached = self.icon_cache_path / f"{name}.svg"
+        if cached.exists():
+            return cached
+        bundled = self.icons_path / f"{name}.svg"
+        if bundled.exists():
+            return bundled
+        if not self.use_mdi_icons:
+            return None
+
+        def fetch():
+            try:
+                response = requests.get(f"https://cdn.jsdelivr.net/npm/@mdi/svg/svg/{name}.svg", timeout=5)
+                if response.status_code == 200:
+                    cached.write_bytes(response.content)
+            except requests.exceptions.RequestException as e:
+                warning(f"Failed to download MDI icon '{name}': {e}")
+
+        self._background_download(f"mdi:{name}", fetch)
+        return None
+
+    def _tinted(self, icon_path: Path, color: str) -> Path:
+        """A copy of the SVG with every path filled in color, cached next to the downloads."""
+        tinted = self.icon_cache_path / f"{icon_path.stem}-{color}.svg"
+        if tinted.exists():
+            return tinted
+        try:
+            ET.register_namespace("", "http://www.w3.org/2000/svg")
+            tree = ET.parse(icon_path)
+            for path in tree.findall(".//{http://www.w3.org/2000/svg}path"):
+                path.set("fill", color)
+            tree.write(tinted)
+            return tinted
+        except (OSError, ET.ParseError) as e:
+            warning(f"Failed to tint {icon_path.name}: {e}")
+            return icon_path
+
+    def _get_icon_path(self, entity: dict) -> Path:
+        path = self._mdi_icon_path(self._mdi_name(entity))
+        if path is None:
+            return self.icon_path  # stand-in while the icon downloads, not tinted
+        if entity.get("state") in ACTIVE_STATES:
+            return self._tinted(path, ACTIVE_COLOR)
+        return path

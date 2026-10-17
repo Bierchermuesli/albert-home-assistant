@@ -18,13 +18,9 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 
 ## Icons
 
-Icon handling is admittedly a bit of a mess - but optimized for speed. The plugin keeps queries non-blocking by layering three sources:
+Every icon is a [Material Design Icon](https://pictogrammers.com/library/mdi/), named the way Home Assistant names it: the entity's own `icon` attribute, or the default the Home Assistant frontend derives from domain, device class and state (a thermometer for a temperature sensor, an open door for a door sensor that is on, ...). The mapping lives in a few tables at the top of the plugin.
 
-1. **Cache hit** - cached MDI/entity-picture SVG is used immediately.
-2. **Cache miss** - a small bundled fallback set (`icons/`, by domain / device_class / unit) is shown right away, and the missing MDI icon is downloaded from jsDelivr in a background thread. The next query for that entity uses the proper icon.
-3. **Coloring** - "active" entities (e.g. lights that are `on`) are recolored by rewriting `fill` attributes in the SVG and caching the tinted result.
-
-Result: queries never wait on the network, and your personal icon cache fills itself in as you use the plugin. Suggestions for a cleaner approach are welcome - the Albert 5.0 Python API has no built-in SVG tinting primitive, so the manual recolor stays for now.
+A name resolves to the cached download, else to the small bundled seed in `icons/mdi` (the defaults, so it works offline), else the icon is downloaded from jsDelivr in a background thread while the Home Assistant logo stands in; the next query shows the proper icon. Downloads can be switched off in the settings. Active entities (lights that are on, players that play) get an amber tinted copy, done by rewriting the SVG fill, since the Albert API has no tinting primitive. Queries never wait on the network.
 
 ## Configuration
 
