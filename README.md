@@ -35,7 +35,7 @@ A name resolves to the cached download, else to the small bundled seed in `icons
 - Type `ha info` to see connection status, option to Toggle internal/External URL and entity statistics.
 - Use `ha ` with an empty query to see your favorite entities.
 - Press `Alt` on an item to see additional domain-specific actions (e.g., setting light brightness).
-- Step actions (`+10%`, `-10%`, next track, ...) keep the Albert window open so you can repeat them, where the Python plugin supports it (`hide_on_activation`, not yet in released Albert); elsewhere use `Shift+Enter`. The shown value updates on the next query, the action text already says where a step leads.
+- Step actions (`+10%`, `-10%`, next track, ...) keep the Albert window open so you can repeat them, where the Python plugin supports it (`hide_on_activation`, not yet in released Albert); elsewhere use `Shift+Enter`. Each step reads the current value when it runs, the value shown in the list updates on the next query.
 
 ## install
 

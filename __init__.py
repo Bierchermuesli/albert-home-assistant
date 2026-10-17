@@ -528,10 +528,47 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     def _call_service(self, service: str, data: dict):
         domain, service_name = service.split(".")
         try:
-            self._make_api_request("post", f"/api/services/{domain}/{service_name}", json=data)
+            response = self._make_api_request("post", f"/api/services/{domain}/{service_name}", json=data)
             info(f"Called service '{service}' on '{data.get('entity_id')}' successfully.")
         except requests.exceptions.RequestException as e:
             warning(f"Error calling service '{service}' on '{data.get('entity_id')}': {e}")
+            return
+        # The response lists the states the call changed; keep the cache current so the next
+        # query shows the new value without waiting for the cache to expire.
+        try:
+            self._update_cache(response.json())
+        except ValueError:
+            pass
+
+    def _update_cache(self, states):
+        if not self.entities_cache or not isinstance(states, list):
+            return
+        changed = {e["entity_id"]: e for e in states if isinstance(e, dict) and "entity_id" in e}
+        self.entities_cache = [changed.get(e["entity_id"], e) for e in self.entities_cache]
+
+    def _current_state(self, entity_id: str) -> dict:
+        """The entity's state fresh from the API, for steps that build on the current value."""
+        try:
+            return self._make_api_request("get", f"/api/states/{entity_id}").json()
+        except (requests.exceptions.RequestException, ValueError) as e:
+            warning(f"Could not read {entity_id}: {e}")
+            return {}
+
+    def _step_brightness(self, entity_id: str, step: int):
+        entity = self._current_state(entity_id)
+        if not entity:
+            return
+        target = max(0, min(100, self._brightness_pct(entity) + step))
+        self._call_service("light.turn_on" if target else "light.turn_off",
+                           {"entity_id": entity_id, "brightness_pct": target} if target else {"entity_id": entity_id})
+
+    def _step_volume(self, entity_id: str, step: int):
+        entity = self._current_state(entity_id)
+        level = entity.get("attributes", {}).get("volume_level") if entity else None
+        if level is None:
+            return
+        target = max(0, min(100, round(level * 100) + step))
+        self._call_service("media_player.volume_set", {"entity_id": entity_id, "volume_level": target / 100})
 
     @staticmethod
     def _name(entity):
@@ -580,25 +617,21 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         return round((entity.get("attributes", {}).get("brightness") or 0) * 100 / 255)
 
     def _light_actions(self, entity):
-        """Toggle, relative steps from the current brightness and a few presets. The window
-        closes after an action; Shift+Enter keeps it open for repeated steps."""
+        """Toggle, brightness steps and a few presets. A step reads the current brightness when
+        it runs, so it can be repeated while the window stays open."""
         entity_id = entity["entity_id"]
-        current = self._brightness_pct(entity)
         actions = [Action("toggle", "Toggle", partial(self._call_service, "light.toggle", {"entity_id": entity_id}))]
         for step in (10, -10):
-            target = max(0, min(100, current + step))
-            if target != current:
-                actions.append(self._repeat_action(f"step_{step}", f"{step:+d}% → {target}%",
-                                                   partial(self._call_service, "light.turn_on",
-                                                           {"entity_id": entity_id, "brightness_pct": target})))
+            actions.append(self._repeat_action(f"step_{step}", f"{step:+d}%",
+                                               partial(self._step_brightness, entity_id, step)))
         for pct in (25, 50, 75, 100):
             actions.append(Action(f"set_{pct}", f"Set to {pct}%",
                                   partial(self._call_service, "light.turn_on", {"entity_id": entity_id, "brightness_pct": pct})))
         return actions
 
     def _media_player_actions(self, entity):
-        """Actions a media player supports, by its supported_features bits. Volume steps are
-        relative to the current level; Shift+Enter keeps the window open for repeated steps."""
+        """Actions a media player supports, by its supported_features bits. A volume step reads
+        the current level when it runs, so it can be repeated while the window stays open."""
         entity_id, state = entity["entity_id"], entity.get("state")
         attributes = entity.get("attributes", {})
         features = attributes.get("supported_features", 0)
@@ -621,12 +654,9 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             muted = bool(attributes.get("is_volume_muted"))
             add("mute", "Unmute" if muted else "Mute", "volume_mute", is_volume_muted=not muted)
         if features & MP_VOLUME_SET and attributes.get("volume_level") is not None:
-            current = round(attributes["volume_level"] * 100)
             for step in (10, -10):
-                target = max(0, min(100, current + step))
-                if target != current:
-                    add(f"vol_step_{step}", f"Volume {step:+d}% → {target}%", "volume_set", repeat=True,
-                        volume_level=target / 100)
+                actions.append(self._repeat_action(f"vol_step_{step}", f"Volume {step:+d}%",
+                                                   partial(self._step_volume, entity_id, step)))
             for pct in (25, 50, 75, 100):
                 add(f"vol_{pct}", f"Set Volume to {pct}%", "volume_set", volume_level=pct / 100)
         elif features & MP_VOLUME_STEP:
