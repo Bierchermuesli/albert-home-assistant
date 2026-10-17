@@ -17,58 +17,66 @@ import hashlib
 md_iid = "5.0"
 md_version = "3.6"
 
-# Verb-first command mode: first token of the query is a verb that restricts
-# the candidate domain, so e.g. "play office" never lists office lamps.
-VERB_DOMAINS = {
-    "play":       ["media_player"],
-    "pause":      ["media_player"],
-    "next":       ["media_player"],
-    "prev":       ["media_player"],
-    "vol":        ["media_player"],
-    "volume":     ["media_player"],
-    "mute":       ["media_player"],
-    "unmute":     ["media_player"],
-    "bright":     ["light"],
-    "brightness": ["light"],
-    "on":         ["light", "switch", "fan", "input_boolean", "scene", "script", "cover", "media_player"],
-    "off":        ["light", "switch", "fan", "input_boolean", "cover", "media_player"],
-    "toggle":     ["light", "switch", "fan", "input_boolean", "cover"],
+# Verb-first command mode: the first word of the query is a verb that restricts the candidate
+# domains, so "play office" never lists office lamps. (verb, domain) -> (service, label).
+# {pct} is filled in for the verbs that take a number.
+VERB_SERVICES = {
+    ("play",       "media_player"):  ("media_player.media_play",           "Play {name}"),
+    ("pause",      "media_player"):  ("media_player.media_pause",          "Pause {name}"),
+    ("next",       "media_player"):  ("media_player.media_next_track",     "Next track on {name}"),
+    ("prev",       "media_player"):  ("media_player.media_previous_track", "Previous track on {name}"),
+    ("vol",        "media_player"):  ("media_player.volume_set",           "Set {name} volume to {pct}%"),
+    ("volume",     "media_player"):  ("media_player.volume_set",           "Set {name} volume to {pct}%"),
+    ("mute",       "media_player"):  ("media_player.volume_mute",          "Mute {name}"),
+    ("unmute",     "media_player"):  ("media_player.volume_mute",          "Unmute {name}"),
+    ("bright",     "light"):         ("light.turn_on",                     "Set {name} brightness to {pct}%"),
+    ("brightness", "light"):         ("light.turn_on",                     "Set {name} brightness to {pct}%"),
+    ("on",         "light"):         ("light.turn_on",                     "Turn on {name}"),
+    ("on",         "switch"):        ("switch.turn_on",                    "Turn on {name}"),
+    ("on",         "fan"):           ("fan.turn_on",                       "Turn on {name}"),
+    ("on",         "input_boolean"): ("input_boolean.turn_on",             "Turn on {name}"),
+    ("on",         "scene"):         ("scene.turn_on",                     "Activate {name}"),
+    ("on",         "script"):        ("script.turn_on",                    "Run {name}"),
+    ("on",         "cover"):         ("cover.open_cover",                  "Open {name}"),
+    ("on",         "media_player"):  ("media_player.media_play",           "Play {name}"),
+    ("off",        "light"):         ("light.turn_off",                    "Turn off {name}"),
+    ("off",        "switch"):        ("switch.turn_off",                   "Turn off {name}"),
+    ("off",        "fan"):           ("fan.turn_off",                      "Turn off {name}"),
+    ("off",        "input_boolean"): ("input_boolean.turn_off",            "Turn off {name}"),
+    ("off",        "cover"):         ("cover.close_cover",                 "Close {name}"),
+    ("off",        "media_player"):  ("media_player.media_stop",           "Stop {name}"),
+    ("toggle",     "light"):         ("light.toggle",                      "Toggle {name}"),
+    ("toggle",     "switch"):        ("switch.toggle",                     "Toggle {name}"),
+    ("toggle",     "fan"):           ("fan.toggle",                        "Toggle {name}"),
+    ("toggle",     "input_boolean"): ("input_boolean.toggle",              "Toggle {name}"),
+    ("toggle",     "cover"):         ("cover.toggle",                      "Toggle {name}"),
 }
 
-VERB_SERVICES = {
-    # (verb, domain): (service, label_template). {pct} is filled when verb has a numeric value.
-    ("play",       "media_player"):  ("media_player.media_play",          "Play {name}"),
-    ("pause",      "media_player"):  ("media_player.media_pause",         "Pause {name}"),
-    ("next",       "media_player"):  ("media_player.media_next_track",    "Next track on {name}"),
-    ("prev",       "media_player"):  ("media_player.media_previous_track", "Previous track on {name}"),
-    ("vol",        "media_player"):  ("media_player.volume_set",          "Set {name} volume to {pct}%"),
-    ("volume",     "media_player"):  ("media_player.volume_set",          "Set {name} volume to {pct}%"),
-    ("mute",       "media_player"):  ("media_player.volume_mute",         "Mute {name}"),
-    ("unmute",     "media_player"):  ("media_player.volume_mute",         "Unmute {name}"),
-    ("bright",     "light"):         ("light.turn_on",                    "Set {name} brightness to {pct}%"),
-    ("brightness", "light"):         ("light.turn_on",                    "Set {name} brightness to {pct}%"),
-    ("on",         "light"):         ("light.turn_on",                    "Turn on {name}"),
-    ("on",         "switch"):        ("switch.turn_on",                   "Turn on {name}"),
-    ("on",         "fan"):           ("fan.turn_on",                      "Turn on {name}"),
-    ("on",         "input_boolean"): ("input_boolean.turn_on",            "Turn on {name}"),
-    ("on",         "scene"):         ("scene.turn_on",                    "Activate {name}"),
-    ("on",         "script"):        ("script.turn_on",                   "Run {name}"),
-    ("on",         "cover"):         ("cover.open_cover",                 "Open {name}"),
-    ("on",         "media_player"): ("media_player.media_play",          "Play {name}"),
-    ("off",        "light"):         ("light.turn_off",                   "Turn off {name}"),
-    ("off",        "switch"):        ("switch.turn_off",                  "Turn off {name}"),
-    ("off",        "fan"):           ("fan.turn_off",                     "Turn off {name}"),
-    ("off",        "input_boolean"): ("input_boolean.turn_off",           "Turn off {name}"),
-    ("off",        "cover"):         ("cover.close_cover",                "Close {name}"),
-    ("off",        "media_player"): ("media_player.media_stop",          "Stop {name}"),
-    ("toggle",     "light"):         ("light.toggle",                     "Toggle {name}"),
-    ("toggle",     "switch"):        ("switch.toggle",                    "Toggle {name}"),
-    ("toggle",     "fan"):           ("fan.toggle",                       "Toggle {name}"),
-    ("toggle",     "input_boolean"): ("input_boolean.toggle",             "Toggle {name}"),
-    ("toggle",     "cover"):         ("cover.toggle",                     "Toggle {name}"),
-}
+VERB_DOMAINS = {}
+for _verb, _domain in VERB_SERVICES:
+    VERB_DOMAINS.setdefault(_verb, []).append(_domain)
 
 VALUE_REQUIRED_VERBS = {"vol", "volume", "bright", "brightness"}
+
+# Fixed actions per domain: (action id, label, service, extra service data).
+DOMAIN_ACTIONS = {
+    "light": [("toggle", "Toggle", "light.toggle", {})]
+             + [(f"set_{p}", f"Set to {p}%", "light.turn_on", {"brightness_pct": p}) for p in (20, 40, 60, 80)],
+    "switch": [("toggle", "Toggle", "switch.toggle", {})],
+    "fan": [("toggle", "Toggle", "fan.toggle", {})],
+    "input_boolean": [("toggle", "Toggle", "input_boolean.toggle", {})],
+    "scene": [("turn_on", "Turn On", "scene.turn_on", {})],
+    "script": [("turn_on", "Turn On", "script.turn_on", {})],
+    "automation": [("trigger", "Trigger", "automation.trigger", {})],
+    "cover": [("toggle", "Toggle", "cover.toggle", {}),
+              ("open", "Open", "cover.open_cover", {}),
+              ("close", "Close", "cover.close_cover", {})],
+}
+
+# media_player supported_features bits, see homeassistant.components.media_player.const
+MP_PAUSE, MP_VOLUME_SET, MP_VOLUME_MUTE = 1, 4, 8
+MP_PREVIOUS_TRACK, MP_NEXT_TRACK, MP_VOLUME_STEP, MP_PLAY = 16, 32, 1024, 16384
+
 md_name = "Home Assistant"
 md_description = "View and control Home Assistant devices"
 md_license = "MIT"
@@ -399,319 +407,231 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                                 icon_factory=self._plugin_icon)]
             return
 
-        stripped_query = ctx.query.strip()
-
-        if stripped_query == "info":
-            yield self._run_info_query()
+        query = ctx.query.strip()
+        try:
+            entities = self._get_entities()
+        except requests.exceptions.RequestException as e:
+            yield [self._error_item(e)]
             return
 
-        if not stripped_query:
+        if query == "info":
+            yield self._info_items(entities)
+        elif not query:
             if self.favorite_items:
-                yield self._run_favorites_search()
+                yield self._entity_items([e for e in entities if e["entity_id"] in self.favorite_items])
             else:
                 yield [StandardItem(id=md_name, text=md_name, subtext=f"Using: {self.active_url}", icon_factory=self._plugin_icon,
                                     actions=[Action("url", "Open Home Assistant", lambda: openUrl(self.active_url))])]
-            return
-
-        if verb_match := self._parse_verb_query(stripped_query):
-            yield self._run_verb_query(*verb_match)
-            return
-
-        yield self._run_search(stripped_query)
+        elif verb_query := self._parse_verb_query(query):
+            verb, terms, value = verb_query
+            yield self._entity_items(entities, terms, verb, value)
+        else:
+            yield self._entity_items(entities, query.lower().split())
 
     def _parse_verb_query(self, query: str):
-        """Return (verb, filter_terms, value) if first token is a known verb, else None."""
-        parts = query.split()
-        if not parts:
-            return None
-        verb = parts[0].lower()
+        """(verb, filter terms, value) if the first word is a known verb, else None."""
+        verb, *rest = query.split()
+        verb = verb.lower()
         if verb not in VERB_DOMAINS:
             return None
-
-        rest = parts[1:]
         value = None
         if verb in VALUE_REQUIRED_VERBS:
-            # Last purely-numeric token is the value, the rest is the filter.
+            # The last purely numeric word is the value, the rest is the filter.
             for i in range(len(rest) - 1, -1, -1):
-                token = rest[i]
-                if token.replace('.', '', 1).isdigit():
-                    value = float(token)
-                    rest = rest[:i] + rest[i+1:]
+                if rest[i].replace(".", "", 1).isdigit():
+                    value = float(rest.pop(i))
                     break
+        return verb, [t.lower() for t in rest], value
 
-        return (verb, [t.lower() for t in rest], value)
+    def _entity_items(self, entities, terms=(), verb=None, value=None):
+        """Items for the entities matching every term in id or name, by name. With a verb only
+        its domains are candidates and the verb's action comes first."""
+        domains = VERB_DOMAINS.get(verb) if verb else None
+        matching = []
+        for entity in entities:
+            entity_id = entity["entity_id"]
+            if self._is_blacklisted(entity_id):
+                continue
+            if domains and entity_id.split(".")[0] not in domains:
+                continue
+            haystack = f"{entity_id} {self._name(entity)}".lower()
+            if all(term in haystack for term in terms):
+                matching.append(entity)
 
-    def _build_verb_action(self, verb, entity, value):
-        """Return (label, callable) or None when verb can't be applied."""
-        entity_id = entity['entity_id']
-        domain = entity_id.split('.')[0]
-        if (verb, domain) not in VERB_SERVICES:
+        results = []
+        for entity in sorted(matching, key=self._name):
+            prepend = []
+            if verb and (action := self._verb_action(verb, entity, value)):
+                prepend.append(action)
+            if item := self._build_item(entity, prepend, completion_prefix=verb or ""):
+                results.append(item)
+            if not verb and entity["entity_id"].startswith("media_player.") and entity.get("state") == "playing":
+                if now_playing := self._build_now_playing_item(entity):
+                    results.append(now_playing)
+        return results
+
+    def _verb_action(self, verb, entity, value):
+        """The action of a verb for an entity, or None when the verb does not apply to it."""
+        entity_id = entity["entity_id"]
+        domain = entity_id.split(".")[0]
+        if (verb, domain) not in VERB_SERVICES or (verb in VALUE_REQUIRED_VERBS and value is None):
             return None
-        if verb in VALUE_REQUIRED_VERBS and value is None:
-            return None
-
-        service, label_tmpl = VERB_SERVICES[(verb, domain)]
-        name = entity.get('attributes', {}).get('friendly_name', entity_id)
-        payload = {"entity_id": entity_id}
+        service, label = VERB_SERVICES[(verb, domain)]
+        data = {"entity_id": entity_id}
         pct = None
-
         if verb in ("vol", "volume"):
-            v = max(0.0, min(1.0, float(value) / 100))
-            payload["volume_level"] = v
-            pct = int(v * 100)
+            level = max(0.0, min(1.0, value / 100))
+            data["volume_level"] = level
+            pct = int(level * 100)
         elif verb in ("bright", "brightness"):
-            v = max(0, min(100, int(value)))
-            payload["brightness_pct"] = v
-            pct = v
+            pct = max(0, min(100, int(value)))
+            data["brightness_pct"] = pct
         elif verb == "mute":
-            payload["is_volume_muted"] = True
+            data["is_volume_muted"] = True
         elif verb == "unmute":
-            payload["is_volume_muted"] = False
+            data["is_volume_muted"] = False
+        return Action(f"verb_{verb}", label.format(name=self._name(entity), pct=pct),
+                      partial(self._call_service, service, data))
 
-        label = label_tmpl.format(name=name, pct=pct) if pct is not None else label_tmpl.format(name=name)
-        return (label, lambda s=service, p=payload: self._call_service(s, p))
-
-    def _run_verb_query(self, verb, filter_terms, value):
-        results = []
-        try:
-            entities = self._get_entities()
-            applicable_domains = set(VERB_DOMAINS.get(verb, []))
-            candidates = [
-                e for e in entities
-                if not self._is_blacklisted(e['entity_id'])
-                and e['entity_id'].split('.')[0] in applicable_domains
-                and all(
-                    term in f"{e['entity_id']} {e.get('attributes', {}).get('friendly_name', '')}".lower()
-                    for term in filter_terms
-                )
-            ]
-            for entity in sorted(candidates, key=lambda e: e.get("attributes", {}).get("friendly_name", e['entity_id'])):
-                prepend = []
-                if (va := self._build_verb_action(verb, entity, value)) is not None:
-                    label, fn = va
-                    prepend.append(Action(f"verb_{verb}", label, fn))
-                if item := self._build_item(entity, prepend_actions=prepend, completion_prefix=verb):
-                    results.append(item)
-        except requests.exceptions.RequestException as e:
-            results.append(self._error_item(e))
-        return results
-
-    def _run_info_query(self):
-        results = []
-        try:
-            entities = self._get_entities()
-            total_entities = len(entities)
-
-            visible_entities = sum(
-                1 for e in entities
-                if not self._is_blacklisted(e['entity_id'])
-                and e.get('state', 'unknown') not in self.state_blacklist_items
-            )
-
-            toggle_actions = []
-            subtext = "The current URL used for API requests."
-            if self._internal_url and self._public_url:
-                toggle_actions.append(Action("toggle_url", "Toggle Active URL", self._toggle_active_url))
-                if self.active_url == self._internal_url:
-                    subtext = "Using internal URL. Action to switch to public."
-                else:
-                    subtext = "Using public URL. Action to switch to internal."
-
-            results.append(StandardItem(
-                id="info_url",
-                text=f"Active URL: {self.active_url}",
-                subtext=subtext,
-                icon_factory=self._plugin_icon,
-                actions=toggle_actions
-            ))
-
-            results.append(StandardItem(
-                id="info_total",
-                text=f"Total entities: {total_entities}",
-                subtext="Number of entities exposed by the Home Assistant API",
-                icon_factory=self._plugin_icon
-            ))
-
-            results.append(StandardItem(
-                id="info_visible",
-                text=f"Visible entities: {visible_entities}",
-                subtext="Entities remaining after applying blacklists",
-                icon_factory=self._plugin_icon
-            ))
-
-        except requests.exceptions.RequestException as e:
-            results.append(self._error_item(e))
-
-        return results
-
-    def _run_search(self, query_string):
-        results = []
-        try:
-            entities = self._get_entities()
-            search_terms = query_string.lower().split()
-            filtered_entities = [
-                e for e in entities 
-                if not self._is_blacklisted(e['entity_id']) and all(
-                    term in f"{e['entity_id']} {e.get('attributes', {}).get('friendly_name', '')}".lower()
-                    for term in search_terms
-                )
-            ]
-
-            for entity in sorted(filtered_entities, key=lambda e: e.get("attributes", {}).get("friendly_name", e['entity_id'])):
-                if item := self._build_item(entity):
-                    results.append(item)
-                if entity['entity_id'].startswith("media_player.") and entity.get('state') == 'playing':
-                    if now_playing_item := self._build_now_playing_item(entity):
-                        results.append(now_playing_item)
-
-        except requests.exceptions.RequestException as e:
-            results.append(self._error_item(e))
-        
-        return results
-
-    def _run_favorites_search(self):
-        results = []
-        try:
-            entities = self._get_entities()
-            favorite_entities = [e for e in entities if e['entity_id'] in self.favorite_items]
-            for entity in sorted(favorite_entities, key=lambda e: e.get("attributes", {}).get("friendly_name", e['entity_id'])):
-                if item := self._build_item(entity):
-                    results.append(item)
-                if entity['entity_id'].startswith("media_player.") and entity.get('state') == 'playing':
-                    if now_playing_item := self._build_now_playing_item(entity):
-                        results.append(now_playing_item)
-        except requests.exceptions.RequestException as e:
-            results.append(self._error_item(e))
-
-        return results
+    def _info_items(self, entities):
+        visible = sum(1 for e in entities
+                      if not self._is_blacklisted(e["entity_id"])
+                      and e.get("state", "unknown") not in self.state_blacklist_items)
+        toggle_actions = []
+        subtext = "The current URL used for API requests."
+        if self._internal_url and self._public_url:
+            toggle_actions.append(Action("toggle_url", "Toggle Active URL", self._toggle_active_url))
+            which = "internal" if self.active_url == self._internal_url else "public"
+            other = "public" if which == "internal" else "internal"
+            subtext = f"Using {which} URL. Action to switch to {other}."
+        return [
+            StandardItem(id="info_url", text=f"Active URL: {self.active_url}", subtext=subtext,
+                         icon_factory=self._plugin_icon, actions=toggle_actions),
+            StandardItem(id="info_total", text=f"Total entities: {len(entities)}",
+                         subtext="Number of entities exposed by the Home Assistant API",
+                         icon_factory=self._plugin_icon),
+            StandardItem(id="info_visible", text=f"Visible entities: {visible}",
+                         subtext="Entities remaining after applying blacklists",
+                         icon_factory=self._plugin_icon),
+        ]
 
     def _call_service(self, service: str, data: dict):
-        domain, service_name = service.split('.')
-        endpoint = f"/api/services/{domain}/{service_name}"
+        domain, service_name = service.split(".")
         try:
-            self._make_api_request("post", endpoint, json=data)
+            self._make_api_request("post", f"/api/services/{domain}/{service_name}", json=data)
             info(f"Called service '{service}' on '{data.get('entity_id')}' successfully.")
         except requests.exceptions.RequestException as e:
             warning(f"Error calling service '{service}' on '{data.get('entity_id')}': {e}")
-            
-    def _format_state(self, state: str, unit: str | None) -> str:
+
+    @staticmethod
+    def _name(entity):
+        return entity.get("attributes", {}).get("friendly_name", entity["entity_id"])
+
+    @staticmethod
+    def _format_state(state: str, unit: str | None) -> str:
         try:
-            num_state = float(state)
-            formatted = f"{num_state:.2f}".rstrip('0').rstrip('.') if '.' in str(num_state) else str(int(num_state))
-            return f"{formatted} {unit}" if unit else formatted
+            number = float(state)
         except (ValueError, TypeError):
-            return state.replace('_', ' ').capitalize()
+            return state.replace("_", " ").capitalize()
+        formatted = f"{number:.2f}".rstrip("0").rstrip(".")
+        return f"{formatted} {unit}" if unit else formatted
 
     def _build_now_playing_item(self, entity: dict):
-        attributes = entity.get('attributes', {})
+        attributes = entity.get("attributes", {})
         title = attributes.get("media_title")
-        if not title: return None
-
+        if not title:
+            return None
         artist = attributes.get("media_artist")
         album = attributes.get("media_album_name")
         text = f"{artist} - {album}" if artist and album else artist or album or "unknown Track/Artist"
-        
         icon_path = self._get_url_icon_path(attributes.get("entity_picture")) or self.icon_path
-
         return StandardItem(
             id=f"now_playing_{entity['entity_id']}", text=text, subtext="now playing",
-            icon_factory=lambda p=icon_path: Icon.image(str(p)),
+            icon_factory=partial(Icon.image, str(icon_path)),
             actions=[Action("copy_title", "Copy Title", partial(setClipboardText, title)),
                      Action("copy_artist", "Copy Artist", partial(setClipboardText, artist or ""))]
         )
 
+    def _media_player_actions(self, entity):
+        """Actions a media player supports, by its supported_features bits."""
+        entity_id, state = entity["entity_id"], entity.get("state")
+        attributes = entity.get("attributes", {})
+        features = attributes.get("supported_features", 0)
+        actions = []
+
+        def add(action_id, label, service, **data):
+            actions.append(Action(action_id, label,
+                                  partial(self._call_service, f"media_player.{service}", {"entity_id": entity_id, **data})))
+
+        if state != "paused" and features & MP_PAUSE:
+            add("pause", "Pause", "media_pause")
+        if state != "playing" and features & MP_PLAY:
+            add("play", "Play", "media_play")
+        if features & MP_NEXT_TRACK:
+            add("next", "Next Track", "media_next_track")
+        if features & MP_PREVIOUS_TRACK:
+            add("prev", "Previous Track", "media_previous_track")
+        if features & MP_VOLUME_MUTE:
+            muted = bool(attributes.get("is_volume_muted"))
+            add("mute", "Unmute" if muted else "Mute", "volume_mute", is_volume_muted=not muted)
+        if features & MP_VOLUME_SET:
+            for pct in (20, 40, 60, 80, 100):
+                add(f"vol_{pct}", f"Set Volume to {pct}%", "volume_set", volume_level=pct / 100)
+        if features & MP_VOLUME_STEP:
+            add("volume_up", "Volume Up", "volume_up")
+            add("volume_down", "Volume Down", "volume_down")
+        return actions
+
+    def _input_number_actions(self, entity):
+        """One action per step of the number's range."""
+        entity_id = entity["entity_id"]
+        attributes = entity.get("attributes", {})
+        low, high, step = (float(attributes.get(k, 0.0)) for k in ("min", "max", "step"))
+        if step <= 0 or high <= low:
+            step = max(high - low, 1.0)
+        actions = []
+        value = low
+        while round(value, 4) <= round(high, 4):
+            actions.append(Action(f"set_{value}", f"Set to {value}",
+                                  partial(self._call_service, "input_number.set_value", {"entity_id": entity_id, "value": value})))
+            value += step
+        return actions
+
     def _build_item(self, entity: dict, prepend_actions=(), completion_prefix=""):
-        entity_id = entity.get('entity_id')
-        if not entity_id: return None
+        entity_id = entity.get("entity_id")
+        if not entity_id:
+            return None
+        state = entity.get("state", "unknown")
+        if state in self.state_blacklist_items:
+            return None
 
-        state = entity.get('state', 'unknown')
-        if state in self.state_blacklist_items: return None
-
-        domain = entity_id.split('.')[0]
-        attributes = entity.get('attributes', {})
-        friendly_name = attributes.get('friendly_name', entity_id)
+        domain = entity_id.split(".")[0]
+        attributes = entity.get("attributes", {})
+        friendly_name = self._name(entity)
+        formatted_state = self._format_state(state, attributes.get("unit_of_measurement"))
 
         actions = list(prepend_actions)
-        unit = attributes.get("unit_of_measurement")
-        supported_features = attributes.get("supported_features", 0)
-        formatted_state = self._format_state(state, unit)
-        icon_path = self._get_icon_path(entity) # Pass full entity dict
-
-        # Domain-specific actions
-        if domain == "light":
-            actions.extend([
-                Action("toggle", "Toggle", lambda eid=entity_id: self._call_service("light.toggle", {"entity_id": eid})),
-                #Action("turn_on", "Turn On", lambda eid=entity_id: self._call_service("light.turn_on", {"entity_id": eid})),
-                #Action("turn_off", "Turn Off", lambda eid=entity_id: self._call_service("light.turn_off", {"entity_id": eid}))
-            ])
-            for pct in [20, 40, 60, 80]:
-                actions.append(Action(f"set_{pct}", f"Set to {pct}%", lambda eid=entity_id, p=pct: self._call_service("light.turn_on", {"entity_id": eid, "brightness_pct": p})))
+        if domain == "media_player":
+            actions += self._media_player_actions(entity)
         elif domain == "input_number":
-            min_val, max_val, step = (float(attributes.get(k, 0.0)) for k in ("min", "max", "step"))
-            if step <= 0 or max_val <= min_val:
-                step = max(max_val - min_val, 1.0)
-            value = min_val
-            while round(value, 4) <= round(max_val, 4):
-                actions.append(Action(f"set_{value}", f"Set to {value}", lambda eid=entity_id, v=value: self._call_service("input_number.set_value", {"entity_id": eid, "value": v})))
-                value += step
-        elif domain == "media_player":
-            if state != "paused" and supported_features & 1:
-                actions.append(Action("pause", "Pause", lambda eid=entity_id: self._call_service("media_player.media_pause", {"entity_id": eid})))
-            if state != "playing" and supported_features & 16384:
-                actions.append(Action("play", "Play", lambda eid=entity_id: self._call_service("media_player.media_play", {"entity_id": eid})))
-            if supported_features & 32:
-                actions.append(Action("next", "Next Track", lambda eid=entity_id: self._call_service("media_player.media_next_track", {"entity_id": eid})))
-            if supported_features & 16:
-                actions.append(Action("prev", "Previous Track", lambda eid=entity_id: self._call_service("media_player.media_previous_track", {"entity_id": eid})))
-            if supported_features & 8:
-                is_muted = bool(attributes.get('is_volume_muted'))
-                actions.append(Action("mute", "Unmute" if is_muted else "Mute",
-                    lambda eid=entity_id, m=not is_muted: self._call_service("media_player.volume_mute", {"entity_id": eid, "is_volume_muted": m})))
-            if supported_features & 4:  # VOLUME_SET
-                for pct in (20, 40, 60, 80, 100):
-                    actions.append(Action(f"vol_{pct}", f"Set Volume to {pct}%",
-                        lambda eid=entity_id, p=pct: self._call_service("media_player.volume_set", {"entity_id": eid, "volume_level": p / 100})))
-            if supported_features & 1024:  # VOLUME_STEP
-                actions.append(Action("volume_up", "Volume Up",
-                    lambda eid=entity_id: self._call_service("media_player.volume_up", {"entity_id": eid})))
-                actions.append(Action("volume_down", "Volume Down",
-                    lambda eid=entity_id: self._call_service("media_player.volume_down", {"entity_id": eid})))
-        elif domain in ["switch", "fan", "input_boolean"]:
-            actions.append(Action("toggle", "Toggle", lambda eid=entity_id: self._call_service(f"{domain}.toggle", {"entity_id": eid})))
-        elif domain in ["scene", "script"]:
-            actions.append(Action("turn_on", "Turn On", lambda eid=entity_id: self._call_service(f"{domain}.turn_on", {"entity_id": eid})))
-        elif domain == "automation":
-            actions.append(Action("trigger", "Trigger", lambda eid=entity_id: self._call_service("automation.trigger", {"entity_id": eid})))
-        elif domain == "cover":
-            actions.extend([
-                Action("toggle", "Toggle", lambda eid=entity_id: self._call_service("cover.toggle", {"entity_id": eid})),
-                Action("open", "Open", lambda eid=entity_id: self._call_service("cover.open_cover", {"entity_id": eid})),
-                Action("close", "Close", lambda eid=entity_id: self._call_service("cover.close_cover", {"entity_id": eid}))
-            ])
-        elif domain == "sensor":
-            #friendly_name = f"{friendly_name}: {formatted_state}"
-            pass
-
-        mdi_name = attributes.get("icon")
-        actions.append(Action("copy_entity_id", f"Copy '{entity_id}'", lambda eid=entity_id: setClipboardText(eid)))
-        actions.append(Action("copy_friendly_name", f"Copy '{friendly_name}'", lambda fn=friendly_name: setClipboardText(fn)))
-        actions.append(Action("copy_state", f"Copy '{state}'", lambda v=state: setClipboardText(v)))
-        actions.append(Action("copy_formatted_state", f"Copy '{formatted_state}'", lambda v=formatted_state: setClipboardText(v)))
-        actions.append(Action("copy_icon_path", f"Copy Icon '{icon_path}'", lambda p=icon_path: setClipboardText(str(p) if p else "")))
-        actions.append(Action("copy_mdi_name", f"Copy mdi_name '{mdi_name}'", lambda p=mdi_name: setClipboardText(p or "")))
+            actions += self._input_number_actions(entity)
+        else:
+            for action_id, label, service, data in DOMAIN_ACTIONS.get(domain, []):
+                actions.append(Action(action_id, label,
+                                      partial(self._call_service, service, {"entity_id": entity_id, **data})))
+        actions.append(Action("copy_entity_id", f"Copy '{entity_id}'", partial(setClipboardText, entity_id)))
+        actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
 
         subtext = f"{domain.replace('_', ' ').title()} is {formatted_state}"
-        if domain == "media_player" and (vol := attributes.get("volume_level")) is not None:
+        if domain == "media_player" and (volume := attributes.get("volume_level")) is not None:
             muted = " (muted)" if attributes.get("is_volume_muted") else ""
-            subtext += f" · {int(vol * 100)}%{muted}"
-
-        completion = f"{completion_prefix} {friendly_name}".strip() if completion_prefix else friendly_name
+            subtext += f" · {int(volume * 100)}%{muted}"
 
         return StandardItem(
             id=entity_id,
             text=friendly_name,
             subtext=subtext,
-            input_action_text=completion,
-            icon_factory=lambda p=icon_path: Icon.image(str(p)),
+            input_action_text=f"{completion_prefix} {friendly_name}".strip(),
+            icon_factory=partial(Icon.image, str(self._get_icon_path(entity))),
             actions=actions
         )
