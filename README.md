@@ -7,8 +7,8 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 - **Entity Control**: Toggle lights, switches, and covers; control media players; trigger scripts and automations.
 - **Favorites**: Define a list of favorite entities to be shown immediately when the trigger is used without a query.
 - **Domain specific features**:
-  - **media_player** Media Control. Extra item with 'now playing' with Cover and title 
-  - **light** On/Off and Dimm
+  - **media_player** play, pause, next, previous, mute, volume steps (+10% / -10%) and presets; an extra 'now playing' item with cover and title
+  - **light** toggle, brightness steps (+10% / -10% from the current value) and presets
   - **input_number** selection of steps
   - **cover** open/close
 - **Smart URL Switching**: Automatically switches between internal and public URLs based on connectivity.
@@ -35,6 +35,7 @@ A name resolves to the cached download, else to the small bundled seed in `icons
 - Type `ha info` to see connection status, option to Toggle internal/External URL and entity statistics.
 - Use `ha ` with an empty query to see your favorite entities.
 - Press `Alt` on an item to see additional domain-specific actions (e.g., setting light brightness).
+- Albert closes after an action. For repeated steps (`+10%`, `-10%`, next track, ...) use `Shift+Enter`, which keeps the window open; the shown value updates on the next query.
 
 ## install
 

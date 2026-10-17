@@ -60,8 +60,8 @@ VALUE_REQUIRED_VERBS = {"vol", "volume", "bright", "brightness"}
 
 # Fixed actions per domain: (action id, label, service, extra service data).
 DOMAIN_ACTIONS = {
-    "light": [("toggle", "Toggle", "light.toggle", {})]
-             + [(f"set_{p}", f"Set to {p}%", "light.turn_on", {"brightness_pct": p}) for p in (20, 40, 60, 80)],
+    # light and media_player actions depend on the current value, see _light_actions and
+    # _media_player_actions.
     "switch": [("toggle", "Toggle", "switch.toggle", {})],
     "fan": [("toggle", "Toggle", "fan.toggle", {})],
     "input_boolean": [("toggle", "Toggle", "input_boolean.toggle", {})],
@@ -562,8 +562,33 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                      Action("copy_artist", "Copy Artist", partial(setClipboardText, artist or ""))]
         )
 
+    @staticmethod
+    def _brightness_pct(entity):
+        """Current brightness in percent, 0 when off or unknown."""
+        if entity.get("state") != "on":
+            return 0
+        return round((entity.get("attributes", {}).get("brightness") or 0) * 100 / 255)
+
+    def _light_actions(self, entity):
+        """Toggle, relative steps from the current brightness and a few presets. The window
+        closes after an action; Shift+Enter keeps it open for repeated steps."""
+        entity_id = entity["entity_id"]
+        current = self._brightness_pct(entity)
+        actions = [Action("toggle", "Toggle", partial(self._call_service, "light.toggle", {"entity_id": entity_id}))]
+        for step in (10, -10):
+            target = max(0, min(100, current + step))
+            if target != current:
+                actions.append(Action(f"step_{step}", f"{step:+d}% → {target}%",
+                                      partial(self._call_service, "light.turn_on",
+                                              {"entity_id": entity_id, "brightness_pct": target})))
+        for pct in (25, 50, 75, 100):
+            actions.append(Action(f"set_{pct}", f"Set to {pct}%",
+                                  partial(self._call_service, "light.turn_on", {"entity_id": entity_id, "brightness_pct": pct})))
+        return actions
+
     def _media_player_actions(self, entity):
-        """Actions a media player supports, by its supported_features bits."""
+        """Actions a media player supports, by its supported_features bits. Volume steps are
+        relative to the current level; Shift+Enter keeps the window open for repeated steps."""
         entity_id, state = entity["entity_id"], entity.get("state")
         attributes = entity.get("attributes", {})
         features = attributes.get("supported_features", 0)
@@ -584,10 +609,15 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         if features & MP_VOLUME_MUTE:
             muted = bool(attributes.get("is_volume_muted"))
             add("mute", "Unmute" if muted else "Mute", "volume_mute", is_volume_muted=not muted)
-        if features & MP_VOLUME_SET:
-            for pct in (20, 40, 60, 80, 100):
+        if features & MP_VOLUME_SET and attributes.get("volume_level") is not None:
+            current = round(attributes["volume_level"] * 100)
+            for step in (10, -10):
+                target = max(0, min(100, current + step))
+                if target != current:
+                    add(f"vol_step_{step}", f"Volume {step:+d}% → {target}%", "volume_set", volume_level=target / 100)
+            for pct in (25, 50, 75, 100):
                 add(f"vol_{pct}", f"Set Volume to {pct}%", "volume_set", volume_level=pct / 100)
-        if features & MP_VOLUME_STEP:
+        elif features & MP_VOLUME_STEP:
             add("volume_up", "Volume Up", "volume_up")
             add("volume_down", "Volume Down", "volume_down")
         return actions
@@ -621,7 +651,9 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         formatted_state = self._format_state(state, attributes.get("unit_of_measurement"))
 
         actions = list(prepend_actions)
-        if domain == "media_player":
+        if domain == "light":
+            actions += self._light_actions(entity)
+        elif domain == "media_player":
             actions += self._media_player_actions(entity)
         elif domain == "input_number":
             actions += self._input_number_actions(entity)
@@ -633,9 +665,11 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
 
         subtext = f"{domain.replace('_', ' ').title()} is {formatted_state}"
-        if domain == "media_player" and (volume := attributes.get("volume_level")) is not None:
+        if domain == "light" and state == "on" and attributes.get("brightness") is not None:
+            subtext += f" · {self._brightness_pct(entity)}%"
+        elif domain == "media_player" and (volume := attributes.get("volume_level")) is not None:
             muted = " (muted)" if attributes.get("is_volume_muted") else ""
-            subtext += f" · {int(volume * 100)}%{muted}"
+            subtext += f" · {round(volume * 100)}%{muted}"
 
         return StandardItem(
             id=entity_id,
