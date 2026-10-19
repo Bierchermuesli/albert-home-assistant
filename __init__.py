@@ -460,17 +460,16 @@ class Plugin(PluginInstance, RankedQueryHandler):
     EMPTY_QUERY_ITEMS = 10
 
     def items(self, ctx):
-        if ctx.query.strip():
-            yield from RankedQueryHandler.items(self, ctx)
-            return
-        rank_items = self.rankItems(ctx)
-        ctx.usageScoring.modifyMatchScores(self.id, rank_items)
+        # The base implementation applies the usage scoring in C++ and sorts lazily; only cut
+        # its stream for the empty query. (Scoring from Python does not work: the binding
+        # copies the list, the modified scores never come back.)
         shown = 0
-        for batch in RankedQueryHandler.lazySort(rank_items):
-            batch = batch[:self.EMPTY_QUERY_ITEMS - shown]
-            if not batch:
-                return
-            shown += len(batch)
+        for batch in RankedQueryHandler.items(self, ctx):
+            if not ctx.query.strip():
+                batch = batch[:self.EMPTY_QUERY_ITEMS - shown]
+                if not batch:
+                    return
+                shown += len(batch)
             yield batch
 
     def rankItems(self, ctx):
