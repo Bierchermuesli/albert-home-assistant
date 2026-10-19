@@ -879,8 +879,10 @@ class Plugin(PluginInstance, RankedQueryHandler):
                 actions.append(self._repeat_action(f"vol_step_{step}", f"Volume {step:+d}%",
                                                    partial(self._step_volume, entity_id, step)))
         elif features & MP_VOLUME_STEP:
-            add("volume_up", "Volume Up", "volume_up", repeat=True)
-            add("volume_down", "Volume Down", "volume_down", repeat=True)
+            # No current level to step from (e.g. a media player group): HA's own steps, their
+            # size is up to the integration.
+            add("volume_up", "Volume +", "volume_up", repeat=True)
+            add("volume_down", "Volume -", "volume_down", repeat=True)
         return actions
 
     def _select_actions(self, entity):
