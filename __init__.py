@@ -182,7 +182,7 @@ class EntityItem(Item):
     def actions(self): return self._actions
 
 
-class Plugin(PluginInstance, GeneratorQueryHandler):
+class Plugin(PluginInstance, RankedQueryHandler):
     # --- private attributes
     _internal_url = ""
     _public_url = ""
@@ -191,7 +191,6 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     _state_blacklist = "unknown,unavailable"
     _use_mdi_icons = True
     _cache_seconds = 30
-    _favorites = ""
 
     # --- plugin state
     headers = {}
@@ -200,7 +199,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
     active_url = ""
 
     def __init__(self):
-        GeneratorQueryHandler.__init__(self)
+        RankedQueryHandler.__init__(self)
         PluginInstance.__init__(self)
         self.icons_path = Path(__file__).parent / "icons" / "mdi"  # bundled seed, see Icons below
         self.icon_path = self.icons_path / "home-assistant.svg"
@@ -284,16 +283,6 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         self._cache_seconds = value
         self.writeConfig("cache_seconds", value)
         
-    @property
-    def favorites(self):
-        return self._favorites
-
-    @favorites.setter
-    def favorites(self, value):
-        self._favorites = value
-        self.writeConfig("favorites", value)
-        self.favorite_items = set(self._split_list(value))
-
     @staticmethod
     def _split_list(value):
         """Items of a comma (or whitespace) separated setting."""
@@ -309,7 +298,6 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             ("state_blacklist", str, self._state_blacklist),
             ("use_mdi_icons", bool, self._use_mdi_icons),
             ("cache_seconds", int, self._cache_seconds),
-            ("favorites", str, self._favorites),
         ]:
             conf = self.readConfig(key, type)
             if conf is None:
@@ -320,7 +308,6 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         
         self.blacklist_patterns = self._split_list(self._blacklist)
         self.state_blacklist_items = set(self._split_list(self._state_blacklist))
-        self.favorite_items = set(self._split_list(self._favorites))
     
     def configWidget(self):
         return [
@@ -332,9 +319,6 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             {"type": "label", "text": "<b>Appearance & Behavior</b>"},
             {"type": "spinbox", "label": "Entity cache duration (seconds)", "property": "cache_seconds", "widget_properties": {"minimum": 5, "maximum": 300}},
             {"type": "checkbox", "label": "Download missing icons from jsDelivr (MDI)", "property": "use_mdi_icons"},
-            {"type": "label", "text": "<b>Favorites</b>"},
-            {"type": "lineedit", "label": "Favorite Entities", "property": "favorites", "widget_properties": {"placeholderText": "light.living_room, switch.desk_fan, ..."}},
-            {"type": "label", "text": "Comma-separated list of favorite entity IDs to show on an empty query."},
             {"type": "label", "text": "<b>Blacklists</b>"},
             {"type": "lineedit", "label": "Entity ID Blacklist", "property": "blacklist"},
             {"type": "label", "text": "Comma-separated entity ids to hide, shell wildcards (* ? [..]). E.g.: <i>update.*, *_rssi</i>"},
@@ -443,34 +427,62 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             self.last_entities_fetch_time = time.time()
             return entities
 
-    def items(self, ctx):
-        if not (self.internal_url or self.public_url) or not self.hass_key:
-            yield [StandardItem(id=md_name, text="Not configured", subtext="Set the URL and access token in the plugin settings",
-                                icon_factory=self._plugin_icon)]
-            return
+    # The empty query shows the entities used most, ranked by Albert's usage scoring.
+    EMPTY_QUERY_ITEMS = 10
 
+    def items(self, ctx):
+        if ctx.query.strip():
+            yield from RankedQueryHandler.items(self, ctx)
+            return
+        rank_items = self.rankItems(ctx)
+        ctx.usageScoring.modifyMatchScores(self.id, rank_items)
+        shown = 0
+        for batch in RankedQueryHandler.lazySort(rank_items):
+            batch = batch[:self.EMPTY_QUERY_ITEMS - shown]
+            if not batch:
+                return
+            shown += len(batch)
+            yield batch
+
+    def rankItems(self, ctx):
+        if not (self.internal_url or self.public_url) or not self.hass_key:
+            return [RankItem(StandardItem(id=md_name, text="Not configured",
+                                          subtext="Set the URL and access token in the plugin settings",
+                                          icon_factory=self._plugin_icon), 1.0)]
         query = ctx.query.strip()
         try:
             entities = self._get_entities()
         except requests.exceptions.RequestException as e:
-            yield [self._error_item(e)]
-            return
+            return [RankItem(self._error_item(e), 1.0)]
 
         if query == "info":
-            yield self._info_items(entities)
-        elif not query:
-            if self.favorite_items:
-                yield self._entity_items([e for e in entities if e["entity_id"] in self.favorite_items])
-            else:
-                yield [StandardItem(id=md_name, text=md_name, subtext=f"Using: {self.active_url}", icon_factory=self._plugin_icon,
-                                    actions=[Action("url", "Open Home Assistant", lambda: openUrl(self.active_url))])]
-        elif query.split()[0].lower() == FAVORITE_VERB:
-            yield self._favorite_items(entities, query.lower().split()[1:])
-        elif verb_query := self._parse_verb_query(query):
+            return [RankItem(item, 1.0) for item in self._info_items(entities)]
+        words = query.lower().split()
+        if not words:
+            return self._entity_items(entities, [])
+        if words[0] == FAVORITE_VERB:
+            return self._favorite_items(entities, words[1:])
+        if verb_query := self._parse_verb_query(query):
             verb, terms, value = verb_query
-            yield self._entity_items(entities, terms, verb, value)
-        else:
-            yield self._entity_items(entities, query.lower().split())
+            return self._entity_items(entities, terms, verb, value)
+        return self._entity_items(entities, words)
+
+    @staticmethod
+    def _scorer(words):
+        """A function rating how well strings match the words: Albert's word-prefix score, a
+        low score for a plain substring hit (so 'lamp' still finds 'StandLamp'), None for no
+        match. Without words everything scores 0 and Albert's usage scoring orders the list."""
+        if not words:
+            return lambda *strings: 0.0
+        matcher = Matcher(" ".join(words))
+
+        def score(*strings):
+            match = matcher.match(list(strings))
+            if match:
+                return match
+            haystack = " ".join(strings).lower()
+            return 0.1 if all(word in haystack for word in words) else None
+        return score
 
     def _parse_verb_query(self, query: str):
         """(verb, filter terms, value) if the first word is a known verb, else None."""
@@ -487,31 +499,29 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                     break
         return verb, [t.lower() for t in rest], value
 
-    def _entity_items(self, entities, terms=(), verb=None, value=None):
-        """Items for the entities matching every term in id or name, by name. With a verb only
-        its domains are candidates and the verb's action comes first."""
+    def _entity_items(self, entities, words, verb=None, value=None):
+        """Ranked items for the entities matching the words by id or name. With a verb only its
+        domains are candidates and the verb's action comes first."""
+        score_of = self._scorer(words)
         domains = VERB_DOMAINS.get(verb) if verb else None
-        matching = []
+        results = []
         for entity in entities:
             entity_id = entity["entity_id"]
             if self._is_blacklisted(entity_id):
                 continue
             if domains and entity_id.split(".")[0] not in domains:
                 continue
-            haystack = f"{entity_id} {self._name(entity)}".lower()
-            if all(term in haystack for term in terms):
-                matching.append(entity)
-
-        results = []
-        for entity in sorted(matching, key=self._name):
+            score = score_of(entity_id, self._name(entity))
+            if score is None:
+                continue
             prepend = []
             if verb and (action := self._verb_action(verb, entity, value)):
                 prepend.append(action)
             if item := self._build_item(entity, prepend, completion_prefix=verb or ""):
-                results.append(item)
-            if not verb and entity["entity_id"].startswith("media_player.") and entity.get("state") == "playing":
+                results.append(RankItem(item, score))
+            if not verb and entity_id.startswith("media_player.") and entity.get("state") == "playing":
                 if now_playing := self._build_now_playing_item(entity):
-                    results.append(now_playing)
+                    results.append(RankItem(now_playing, score))
         return results
 
     def _sonos_groups(self, entities):
@@ -527,18 +537,18 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             groups.setdefault(coordinator["entity_id"], (coordinator, []))[1].append(player)
         return list(groups.values())
 
-    def _favorite_items(self, entities, terms):
-        """One item per Sonos favorite matching the terms. Enter plays it on the group that is
-        playing now (or the first one), the other actions pick another group or player."""
+    def _favorite_items(self, entities, words):
+        """Ranked items, one per Sonos favorite that matches. Enter plays it on the group that
+        is playing now (or the first one), the other actions pick another group or player."""
         favorites = {}
         for entity in entities:
             if entity["entity_id"].endswith("_favorites") and isinstance(entity.get("attributes", {}).get("items"), dict):
                 favorites.update(entity["attributes"]["items"])
         groups = self._sonos_groups(entities)
         if not favorites or not groups:
-            return [StandardItem(id="no_favorites", text="No Sonos favorites",
-                                 subtext="Needs the Sonos integration with a favorites sensor and a player",
-                                 icon_factory=self._plugin_icon)]
+            return [RankItem(StandardItem(id="no_favorites", text="No Sonos favorites",
+                                          subtext="Needs the Sonos integration with a favorites sensor and a player",
+                                          icon_factory=self._plugin_icon), 1.0)]
 
         def label(group):
             coordinator, members = group
@@ -546,9 +556,11 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
 
         ordered = sorted(groups, key=lambda g: (g[0].get("state") != "playing", self._name(g[0])))
         default = ordered[0]
+        score_of = self._scorer(words)
         results = []
-        for item_id, name in sorted(favorites.items(), key=lambda kv: kv[1].lower()):
-            if not all(term in name.lower() for term in terms):
+        for item_id, name in favorites.items():
+            score = score_of(name)
+            if score is None:
                 continue
             actions = []
             for group in ordered:
@@ -557,14 +569,14 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
                         "media_content_id": item_id}
                 actions.append(Action(f"play_{coordinator['entity_id']}", f"Play on {label(group)}",
                                       partial(self._call_service, "media_player.play_media", data)))
-            results.append(StandardItem(
+            results.append(RankItem(StandardItem(
                 id=f"favorite_{item_id}",
                 text=name,
                 subtext=f"Sonos favorite · plays on {label(default)}",
                 input_action_text=f"{FAVORITE_VERB} {name}",
                 icon_factory=partial(Icon.image, str(self._mdi_icon_path(FAVORITE_ICON) or self.icon_path)),
                 actions=actions
-            ))
+            ), score))
         return results
 
     def _verb_action(self, verb, entity, value):

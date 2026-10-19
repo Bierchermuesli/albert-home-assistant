@@ -5,7 +5,7 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 ## Features
 
 - **Entity Control**: Toggle lights, switches, and covers; control media players; trigger scripts and automations.
-- **Favorites**: Define a list of favorite entities to be shown immediately when the trigger is used without a query.
+- **Ranking**: Results are matched and ranked by Albert (word prefixes, any word order, no diacritics; a plain substring still matches, lower), and what you use often moves up. The empty query shows the ten entities you use most.
 - **Domain specific features**:
   - **media_player** play, pause, next, previous, mute, volume steps (+10% / -10%), exact volume via `ha vol <name> <pct>`; an extra 'now playing' item with cover and title
   - **light** toggle and brightness steps (+10% / -10%); exact values via `ha bright <name> <pct>`
@@ -34,7 +34,7 @@ A name resolves to the cached download, else to the small bundled seed in `icons
 - `ha fav <filter>` lists the Sonos favorites; Enter plays one on the group that is playing now, the other actions pick a player. Needs the Sonos integration (it provides the favorites sensor and the player groups).
 - Start with a verb to act directly: `ha play|pause|next|prev|mute|unmute <filter>`, `ha vol <filter> <pct>`, `ha bright <filter> <pct>`, `ha on|off|toggle <filter>`. Only entities the verb applies to are listed and the verb's action comes first.
 - Type `ha info` to see connection status, option to Toggle internal/External URL and entity statistics.
-- Use `ha ` with an empty query to see your favorite entities.
+- Use `ha ` with an empty query to see the entities you use most.
 - Press `Alt` on an item to see additional domain-specific actions (e.g., setting light brightness).
 - Step actions (`+10%`, `-10%`, next track, ...) keep the Albert window open so you can repeat them with Enter, where the Python plugin supports it (`hide_on_activation`, not yet in released Albert); with released Albert the window closes after each step. Each step reads the current value when it runs.
 
