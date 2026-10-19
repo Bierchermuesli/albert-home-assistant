@@ -495,7 +495,21 @@ class Plugin(PluginInstance, RankedQueryHandler):
         if verb_query := self._parse_verb_query(query):
             verb, terms, value = verb_query
             return self._entity_items(entities, terms, verb, value)
-        return self._entity_items(entities, words)
+        results = self._entity_items(entities, words)
+        if self._todo_list_named(entities, words[0]):
+            # 'shop milk' works like 'todo shop milk', ranked together with the entities.
+            results += self._todo_items(entities, words)
+        return results
+
+    def _todo_list_named(self, entities, word):
+        """The to-do list whose name starts with word (at least 3 letters), else None."""
+        if len(word) < 3:
+            return None
+        for entity in entities:
+            if entity["entity_id"].startswith("todo.") and not self._is_blacklisted(entity["entity_id"]):
+                if any(w.startswith(word) for w in self._name(entity).lower().split()):
+                    return entity
+        return None
 
     @staticmethod
     def _scorer(words):
