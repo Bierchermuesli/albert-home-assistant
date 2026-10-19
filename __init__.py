@@ -63,6 +63,11 @@ VALUE_REQUIRED_VERBS = {"vol", "volume", "bright", "brightness"}
 FAVORITE_VERB = "fav"
 FAVORITE_ICON = "star"
 
+# 'todo' lists the to-do lists, 'todo <list> [text]' the open items of one with complete, reopen
+# and remove, and adds the text as an item when no open item matches it.
+TODO_VERB = "todo"
+TODO_ICONS = {"needs_action": "checkbox-blank-outline", "completed": "checkbox-marked-outline"}
+
 # Fixed actions per domain: (action id, label, service, extra service data).
 DOMAIN_ACTIONS = {
     # light and media_player actions depend on the current value, see _light_actions and
@@ -216,6 +221,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
 
         self._download_lock = threading.Lock()
         self._pending_downloads = set()
+        self.todo_cache = {}  # list entity id -> (fetch time, items)
 
         self._init_configuration()
         self._update_headers()
@@ -362,7 +368,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
         return "ha "
 
     def synopsis(self, query):
-        return "<filter> | play|pause|next|prev|mute|unmute <filter> | vol|bright <filter> <pct> | on|off|toggle <filter> | fav <filter> | info"
+        return "<filter> | play|pause|next|prev|mute|unmute <filter> | vol|bright <filter> <pct> | on|off|toggle <filter> | fav <filter> | todo [list] [item] | info"
 
     def _is_hass_url(self, url: str) -> bool:
         return any(url.startswith(u) for u in (self._internal_url, self._public_url) if u)
@@ -485,6 +491,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
             return self._entity_items(entities, [])
         if words[0] == FAVORITE_VERB:
             return self._favorite_items(entities, words[1:])
+        if words[0] == TODO_VERB:
+            return self._todo_items(entities, words[1:])
         if verb_query := self._parse_verb_query(query):
             verb, terms, value = verb_query
             return self._entity_items(entities, terms, verb, value)
@@ -600,6 +608,87 @@ class Plugin(PluginInstance, RankedQueryHandler):
                 icon_factory=partial(Icon.image, str(self._mdi_icon_path(FAVORITE_ICON) or self.icon_path)),
                 actions=actions
             ), score))
+        return results
+
+    # --- to-do lists --------------------------------------------------------------------------
+
+    def _todo_list_items(self, list_entity):
+        """The items of a to-do list from todo.get_items, cached like the entities."""
+        list_id = list_entity["entity_id"]
+        stamp, items = self.todo_cache.get(list_id, (0, []))
+        if time.time() - stamp < self.cache_seconds:
+            return items
+        response = self._make_api_request("post", "/api/services/todo/get_items?return_response",
+                                          json={"entity_id": list_id})
+        items = response.json().get("service_response", {}).get(list_id, {}).get("items", [])
+        self.todo_cache[list_id] = (time.time(), items)
+        return items
+
+    def _todo_call(self, service, data):
+        self._call_service(f"todo.{service}", data)
+        self.todo_cache.pop(data["entity_id"], None)
+
+    def _todo_icon(self, name):
+        return partial(Icon.image, str(self._mdi_icon_path(name) or self.icon_path))
+
+    def _todo_items(self, entities, words):
+        """'todo': the lists. 'todo <list> [text]': the open items of that list, with an item to
+        add the text when no open item matches it. Other words search all lists."""
+        lists = [e for e in entities if e["entity_id"].startswith("todo.") and not self._is_blacklisted(e["entity_id"])]
+        if not lists:
+            return [RankItem(StandardItem(id="no_todo", text="No to-do lists", icon_factory=self._plugin_icon), 1.0)]
+        if not words:
+            return [RankItem(StandardItem(
+                id=lst["entity_id"], text=self._name(lst),
+                subtext=f"To-do list · {lst.get('state')} open",
+                input_action_text=f"{TODO_VERB} {self._name(lst).lower().split()[0]} ",
+                icon_factory=self._todo_icon(DOMAIN_ICONS["todo"]),
+                actions=[Action("open", "Open in Home Assistant",
+                                partial(openUrl, f"{self.active_url}/todo?entity_id={lst['entity_id']}"))]
+            ), 1.0) for lst in lists]
+
+        chosen = [lst for lst in lists if words[0] in self._name(lst).lower() or words[0] in lst["entity_id"]]
+        if chosen:
+            lists, text_words = chosen[:1], words[1:]
+        else:
+            text_words = words
+        score_of = self._scorer(text_words)
+        text = " ".join(text_words)
+        results = []
+        for lst in lists:
+            list_id, list_name = lst["entity_id"], self._name(lst)
+            try:
+                items = self._todo_list_items(lst)
+            except (requests.exceptions.RequestException, ValueError) as e:
+                return [RankItem(self._error_item(e), 1.0)]
+            exact = False
+            for item in items:
+                summary, status = item.get("summary", "").strip(), item.get("status")
+                score = score_of(summary)
+                if score is None or (status == "completed" and not text_words):
+                    continue
+                exact = exact or summary.lower() == text.lower()
+                ref = {"entity_id": list_id, "item": item.get("uid") or summary}
+                if status == "completed":
+                    actions = [Action("reopen", "Reopen", partial(self._todo_call, "update_item", {**ref, "status": "needs_action"}))]
+                else:
+                    actions = [self._repeat_action("complete", "Complete",
+                                                   partial(self._todo_call, "update_item", {**ref, "status": "completed"}))]
+                actions.append(Action("remove", "Remove", partial(self._todo_call, "remove_item", ref)))
+                results.append(RankItem(StandardItem(
+                    id=f"todo-{list_id}-{item.get('uid', summary)}", text=summary,
+                    subtext=f"{list_name} · {'done' if status == 'completed' else 'open'}",
+                    input_action_text=f"{TODO_VERB} {list_name.lower().split()[0]} {summary}",
+                    icon_factory=self._todo_icon(TODO_ICONS.get(status, TODO_ICONS["needs_action"])),
+                    actions=actions
+                ), score if status != "completed" else min(score, 0.05)))
+            if chosen and text and not exact:
+                results.append(RankItem(StandardItem(
+                    id=f"todo-add-{list_id}", text=f"Add \"{text}\"", subtext=f"to {list_name}",
+                    icon_factory=self._todo_icon("plus-box-outline"),
+                    actions=[Action("add", f"Add to {list_name}",
+                                    partial(self._todo_call, "add_item", {"entity_id": list_id, "item": text}))]
+                ), 0.5))
         return results
 
     def _verb_action(self, verb, entity, value):

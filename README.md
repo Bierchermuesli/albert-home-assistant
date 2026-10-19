@@ -31,6 +31,7 @@ A name resolves to the cached download, else to the small bundled seed in `icons
 ## Usage
 
 - Use the trigger `ha ` (configurable) followed by the entity name or ID.
+- `ha todo` lists the to-do lists, `ha todo <list>` the open items of one (Tab completes the list name). Enter completes an item, other actions reopen or remove it; `ha todo <list> <text>` filters and offers to add the text when no open item matches. `ha todo <text>` searches all lists.
 - `ha fav <filter>` lists the Sonos favorites; Enter plays one on the group that is playing now, the other actions pick a player. Needs the Sonos integration (it provides the favorites sensor and the player groups).
 - Start with a verb to act directly: `ha play|pause|next|prev|mute|unmute <filter>`, `ha vol <filter> <pct>`, `ha bright <filter> <pct>`, `ha on|off|toggle <filter>`. Only entities the verb applies to are listed and the verb's action comes first.
 - Type `ha info` to see connection status, option to Toggle internal/External URL and entity statistics.
