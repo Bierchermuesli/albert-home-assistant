@@ -626,7 +626,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
                       partial(self._call_service, service, data))
 
     def _info_items(self, entities):
-        visible = sum(1 for e in entities if self._build_item(e))
+        visible = sum(1 for e in entities if not self._is_blacklisted(e["entity_id"]) and self._build_item(e))
         toggle_actions = []
         subtext = "The current URL used for API requests."
         if self._internal_url and self._public_url:
@@ -830,7 +830,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
                 actions.append(Action(action_id, label,
                                       partial(self._call_service, service, {"entity_id": entity_id, **data})))
         actions.append(Action("copy_entity_id", f"Copy '{entity_id}'", partial(setClipboardText, entity_id)))
-        actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
+        if domain not in STATELESS_DOMAINS:
+            actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
 
         return EntityItem(self, entity, actions, f"{completion_prefix} {friendly_name}".strip())
 
