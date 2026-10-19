@@ -58,6 +58,11 @@ for _verb, _domain in VERB_SERVICES:
 
 VALUE_REQUIRED_VERBS = {"vol", "volume", "bright", "brightness"}
 
+# 'fav' lists the Sonos favorites (sensor.*_favorites of the Sonos integration) to play on a
+# Sonos player, i.e. a media_player with the group_members attribute.
+FAVORITE_VERB = "fav"
+FAVORITE_ICON = "star"
+
 # Fixed actions per domain: (action id, label, service, extra service data).
 DOMAIN_ACTIONS = {
     # light and media_player actions depend on the current value, see _light_actions and
@@ -351,7 +356,7 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         return "ha "
 
     def synopsis(self, query):
-        return "<filter> | play|pause|next|prev|mute|unmute <filter> | vol|bright <filter> <pct> | on|off|toggle <filter> | info"
+        return "<filter> | play|pause|next|prev|mute|unmute <filter> | vol|bright <filter> <pct> | on|off|toggle <filter> | fav <filter> | info"
 
     def _is_hass_url(self, url: str) -> bool:
         return any(url.startswith(u) for u in (self._internal_url, self._public_url) if u)
@@ -459,6 +464,8 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             else:
                 yield [StandardItem(id=md_name, text=md_name, subtext=f"Using: {self.active_url}", icon_factory=self._plugin_icon,
                                     actions=[Action("url", "Open Home Assistant", lambda: openUrl(self.active_url))])]
+        elif query.split()[0].lower() == FAVORITE_VERB:
+            yield self._favorite_items(entities, query.lower().split()[1:])
         elif verb_query := self._parse_verb_query(query):
             verb, terms, value = verb_query
             yield self._entity_items(entities, terms, verb, value)
@@ -505,6 +512,59 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             if not verb and entity["entity_id"].startswith("media_player.") and entity.get("state") == "playing":
                 if now_playing := self._build_now_playing_item(entity):
                     results.append(now_playing)
+        return results
+
+    def _sonos_groups(self, entities):
+        """[(coordinator entity, [member entities])] of the Sonos players, grouped as they are
+        now. Sonos players are the media players with a group_members list."""
+        players = {e["entity_id"]: e for e in entities
+                   if e["entity_id"].startswith("media_player.") and e.get("attributes", {}).get("group_members")
+                   and not self._is_blacklisted(e["entity_id"]) and e.get("state") not in self.state_blacklist_items}
+        groups = {}
+        for player in players.values():
+            coordinator_id = player["attributes"]["group_members"][0]
+            coordinator = players.get(coordinator_id, player)
+            groups.setdefault(coordinator["entity_id"], (coordinator, []))[1].append(player)
+        return list(groups.values())
+
+    def _favorite_items(self, entities, terms):
+        """One item per Sonos favorite matching the terms. Enter plays it on the group that is
+        playing now (or the first one), the other actions pick another group or player."""
+        favorites = {}
+        for entity in entities:
+            if entity["entity_id"].endswith("_favorites") and isinstance(entity.get("attributes", {}).get("items"), dict):
+                favorites.update(entity["attributes"]["items"])
+        groups = self._sonos_groups(entities)
+        if not favorites or not groups:
+            return [StandardItem(id="no_favorites", text="No Sonos favorites",
+                                 subtext="Needs the Sonos integration with a favorites sensor and a player",
+                                 icon_factory=self._plugin_icon)]
+
+        def label(group):
+            coordinator, members = group
+            return self._name(coordinator) + (f" group ({len(members)})" if len(members) > 1 else "")
+
+        ordered = sorted(groups, key=lambda g: (g[0].get("state") != "playing", self._name(g[0])))
+        default = ordered[0]
+        results = []
+        for item_id, name in sorted(favorites.items(), key=lambda kv: kv[1].lower()):
+            if not all(term in name.lower() for term in terms):
+                continue
+            actions = []
+            for group in ordered:
+                coordinator = group[0]
+                data = {"entity_id": coordinator["entity_id"], "media_content_type": "favorite_item_id",
+                        "media_content_id": item_id}
+                actions.append(Action(f"play_{coordinator['entity_id']}", f"Play on {label(group)}",
+                                      partial(self._call_service, "media_player.play_media", data)))
+            results.append(StandardItem(
+                id=f"favorite_{item_id}",
+                text=name,
+                subtext=f"Sonos favorite · plays on {label(default)}",
+                input_action_text=f"{FAVORITE_VERB} {name}",
+                icon_factory=partial(Icon.image, str(self._mdi_icon_path(FAVORITE_ICON) or self.icon_path)),
+                actions=actions
+            ))
         return results
 
     def _verb_action(self, verb, entity, value):
