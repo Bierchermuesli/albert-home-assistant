@@ -644,16 +644,13 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
         return round((entity.get("attributes", {}).get("brightness") or 0) * 100 / 255)
 
     def _light_actions(self, entity):
-        """Toggle, brightness steps and a few presets. A step reads the current brightness when
-        it runs, so it can be repeated while the window stays open."""
+        """Toggle and brightness steps. A step reads the current brightness when it runs, so it
+        can be repeated while the window stays open; exact values go via 'bright <name> <pct>'."""
         entity_id = entity["entity_id"]
         actions = [Action("toggle", "Toggle", partial(self._call_service, "light.toggle", {"entity_id": entity_id}))]
         for step in (10, -10):
             actions.append(self._repeat_action(f"step_{step}", f"{step:+d}%",
                                                partial(self._step_brightness, entity_id, step)))
-        for pct in (25, 50, 75, 100):
-            actions.append(Action(f"set_{pct}", f"Set to {pct}%",
-                                  partial(self._call_service, "light.turn_on", {"entity_id": entity_id, "brightness_pct": pct})))
         return actions
 
     def _media_player_actions(self, entity):
@@ -684,8 +681,6 @@ class Plugin(PluginInstance, GeneratorQueryHandler):
             for step in (10, -10):
                 actions.append(self._repeat_action(f"vol_step_{step}", f"Volume {step:+d}%",
                                                    partial(self._step_volume, entity_id, step)))
-            for pct in (25, 50, 75, 100):
-                add(f"vol_{pct}", f"Set Volume to {pct}%", "volume_set", volume_level=pct / 100)
         elif features & MP_VOLUME_STEP:
             add("volume_up", "Volume Up", "volume_up", repeat=True)
             add("volume_down", "Volume Down", "volume_down", repeat=True)

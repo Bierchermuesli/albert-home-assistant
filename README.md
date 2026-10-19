@@ -7,8 +7,8 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 - **Entity Control**: Toggle lights, switches, and covers; control media players; trigger scripts and automations.
 - **Favorites**: Define a list of favorite entities to be shown immediately when the trigger is used without a query.
 - **Domain specific features**:
-  - **media_player** play, pause, next, previous, mute, volume steps (+10% / -10%) and presets; an extra 'now playing' item with cover and title
-  - **light** toggle, brightness steps (+10% / -10% from the current value) and presets
+  - **media_player** play, pause, next, previous, mute, volume steps (+10% / -10%), exact volume via `ha vol <name> <pct>`; an extra 'now playing' item with cover and title
+  - **light** toggle and brightness steps (+10% / -10%); exact values via `ha bright <name> <pct>`
   - **input_number** selection of steps
   - **cover** open/close
 - **Smart URL Switching**: Automatically switches between internal and public URLs based on connectivity.
