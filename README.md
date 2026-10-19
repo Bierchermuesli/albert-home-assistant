@@ -4,7 +4,7 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 
 ## Features
 
-- **Entity Control**: Toggle lights, switches, and covers; control media players; trigger scripts and automations.
+- **Entity Control**: Toggle lights, switches, and covers; control media players; trigger scripts and automations; press buttons; pick select options; set input numbers.
 - **Ranking**: Results are matched and ranked by Albert (word prefixes, any word order, no diacritics; a plain substring still matches, lower), and what you use often moves up. The empty query shows the ten entities you use most.
 - **Domain specific features**:
   - **media_player** play, pause, next, previous, mute, volume steps (+10% / -10%), exact volume via `ha vol <name> <pct>`; an extra 'now playing' item with cover and title
@@ -12,7 +12,7 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
   - **input_number** selection of steps
   - **cover** open/close
 - **Smart URL Switching**: Automatically switches between internal and public URLs based on connectivity.
-- **Entity Filtering and Blacklisting**: Hide unwanted entities by id with shell wildcards (like `update.*`, `*_rssi`) or by state (like `unavailable`, `unknown`).
+- **Hidden entities**: Whole domains a launcher cannot use are left out (`update, event, notify, ...` by default, e.g. add `device_tracker, number`), noisy ids by pattern (`*_rssi`, `media_player.*_ma`), and states like `unavailable`. Everything else stays searchable, sensors included.
 - **MDI Icons**: Automatically fetches and caches Material Design Icons from jsDelivr to match your Home Assistant UI (opt out possible).
 - **Colored Icons**: Active entities (like lights that are 'on') are displayed with colored icons
 

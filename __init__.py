@@ -73,6 +73,8 @@ DOMAIN_ACTIONS = {
     "scene": [("turn_on", "Turn On", "scene.turn_on", {})],
     "script": [("turn_on", "Turn On", "script.turn_on", {})],
     "automation": [("trigger", "Trigger", "automation.trigger", {})],
+    "button": [("press", "Press", "button.press", {})],
+    "input_button": [("press", "Press", "input_button.press", {})],
     "cover": [("toggle", "Toggle", "cover.toggle", {}),
               ("open", "Open", "cover.open_cover", {}),
               ("close", "Close", "cover.close_cover", {})],
@@ -142,6 +144,10 @@ STATE_ICONS = {
 }
 
 ACTIVE_STATES = {"on", "playing", "open"}
+
+# Domains whose state is only the time of the last press/activation ('unknown' before the
+# first one), so the hidden states do not apply and the subtext says when instead of what.
+STATELESS_DOMAINS = {"button", "input_button", "scene", "event"}
 ACTIVE_COLOR = "#FFC107"  # amber, as in the Home Assistant UI
 
 # media_player supported_features bits, see homeassistant.components.media_player.const
@@ -187,7 +193,9 @@ class Plugin(PluginInstance, RankedQueryHandler):
     _internal_url = ""
     _public_url = ""
     _hass_key = ""
-    _blacklist = "update.*, button.*, *.test_*, *_rssi"
+    # Domains a launcher cannot do anything with, and id patterns for the noise in the others.
+    _hidden_domains = "update, event, notify, tts, stt, conversation, wake_word, zone, sun"
+    _blacklist = "*.test_*, *_rssi"
     _state_blacklist = "unknown,unavailable"
     _use_mdi_icons = True
     _cache_seconds = 30
@@ -246,6 +254,16 @@ class Plugin(PluginInstance, RankedQueryHandler):
         self._update_headers()
     
     @property
+    def hidden_domains(self):
+        return self._hidden_domains
+
+    @hidden_domains.setter
+    def hidden_domains(self, value):
+        self._hidden_domains = value
+        self.writeConfig("hidden_domains", value)
+        self.hidden_domain_set = set(self._split_list(value))
+
+    @property
     def blacklist(self):
         return self._blacklist
 
@@ -294,6 +312,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
             ("internal_url", str, self._internal_url),
             ("public_url", str, self._public_url),
             ("hass_key", str, self._hass_key),
+            ("hidden_domains", str, self._hidden_domains),
             ("blacklist", str, self._blacklist),
             ("state_blacklist", str, self._state_blacklist),
             ("use_mdi_icons", bool, self._use_mdi_icons),
@@ -306,6 +325,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
             else:
                 setattr(self, f"_{key}", conf)
         
+        self.hidden_domain_set = set(self._split_list(self._hidden_domains))
         self.blacklist_patterns = self._split_list(self._blacklist)
         self.state_blacklist_items = set(self._split_list(self._state_blacklist))
     
@@ -319,10 +339,12 @@ class Plugin(PluginInstance, RankedQueryHandler):
             {"type": "label", "text": "<b>Appearance & Behavior</b>"},
             {"type": "spinbox", "label": "Entity cache duration (seconds)", "property": "cache_seconds", "widget_properties": {"minimum": 5, "maximum": 300}},
             {"type": "checkbox", "label": "Download missing icons from jsDelivr (MDI)", "property": "use_mdi_icons"},
-            {"type": "label", "text": "<b>Blacklists</b>"},
-            {"type": "lineedit", "label": "Entity ID Blacklist", "property": "blacklist"},
-            {"type": "label", "text": "Comma-separated entity ids to hide, shell wildcards (* ? [..]). E.g.: <i>update.*, *_rssi</i>"},
-            {"type": "lineedit", "label": "State Blacklist", "property": "state_blacklist"},
+            {"type": "label", "text": "<b>Hidden entities</b>"},
+            {"type": "lineedit", "label": "Hidden domains", "property": "hidden_domains"},
+            {"type": "label", "text": "Comma-separated domains to leave out entirely. E.g.: <i>update, device_tracker, number</i>"},
+            {"type": "lineedit", "label": "Hidden entity ids", "property": "blacklist"},
+            {"type": "label", "text": "Comma-separated id patterns with shell wildcards (* ? [..]). E.g.: <i>*_rssi, media_player.*_ma</i>"},
+            {"type": "lineedit", "label": "Hidden states", "property": "state_blacklist"},
             {"type": "label", "text": "Comma-separated states to hide. E.g.: <i>unknown, unavailable</i>"},
         ]
 
@@ -387,7 +409,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
         return None
 
     def _is_blacklisted(self, entity_id: str) -> bool:
-        return any(fnmatchcase(entity_id, pattern) for pattern in self.blacklist_patterns)
+        return (entity_id.split(".")[0] in self.hidden_domain_set
+                or any(fnmatchcase(entity_id, pattern) for pattern in self.blacklist_patterns))
 
     def _toggle_active_url(self):
         if not (self._internal_url and self._public_url):
@@ -603,9 +626,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
                       partial(self._call_service, service, data))
 
     def _info_items(self, entities):
-        visible = sum(1 for e in entities
-                      if not self._is_blacklisted(e["entity_id"])
-                      and e.get("state", "unknown") not in self.state_blacklist_items)
+        visible = sum(1 for e in entities if self._build_item(e))
         toggle_actions = []
         subtext = "The current URL used for API requests."
         if self._internal_url and self._public_url:
@@ -758,6 +779,15 @@ class Plugin(PluginInstance, RankedQueryHandler):
             add("volume_down", "Volume Down", "volume_down", repeat=True)
         return actions
 
+    def _select_actions(self, entity):
+        """One action per option of a select, the current one left out."""
+        entity_id = entity["entity_id"]
+        domain = entity_id.split(".")[0]
+        attributes = entity.get("attributes", {})
+        return [Action(f"option_{option}", f"Select {option}",
+                       partial(self._call_service, f"{domain}.select_option", {"entity_id": entity_id, "option": option}))
+                for option in attributes.get("options", []) if option != entity.get("state")]
+
     def _input_number_actions(self, entity):
         """One action per step of the number's range."""
         entity_id = entity["entity_id"]
@@ -778,10 +808,10 @@ class Plugin(PluginInstance, RankedQueryHandler):
         if not entity_id:
             return None
         state = entity.get("state", "unknown")
-        if state in self.state_blacklist_items:
+        domain = entity_id.split(".")[0]
+        if state in self.state_blacklist_items and not (domain in STATELESS_DOMAINS and state == "unknown"):
             return None
 
-        domain = entity_id.split(".")[0]
         attributes = entity.get("attributes", {})
         friendly_name = self._name(entity)
         formatted_state = self._format_state(state, attributes.get("unit_of_measurement"))
@@ -793,6 +823,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
             actions += self._media_player_actions(entity)
         elif domain == "input_number":
             actions += self._input_number_actions(entity)
+        elif domain in ("select", "input_select"):
+            actions += self._select_actions(entity)
         else:
             for action_id, label, service, data in DOMAIN_ACTIONS.get(domain, []):
                 actions.append(Action(action_id, label,
@@ -807,7 +839,11 @@ class Plugin(PluginInstance, RankedQueryHandler):
         domain = entity["entity_id"].split(".")[0]
         attributes = entity.get("attributes", {})
         state = entity.get("state", "unknown")
-        subtext = f"{domain.replace('_', ' ').title()} is {self._format_state(state, attributes.get('unit_of_measurement'))}"
+        kind = domain.replace("_", " ").title()
+        if domain in STATELESS_DOMAINS:
+            when = re.match(r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})", state)
+            return f"{kind} · last used {when.group(1)} {when.group(2)}" if when else f"{kind} · never used"
+        subtext = f"{kind} is {self._format_state(state, attributes.get('unit_of_measurement'))}"
         if domain == "light" and state == "on" and attributes.get("brightness") is not None:
             subtext += f" · {self._brightness_pct(entity)}%"
         elif domain == "media_player" and (volume := attributes.get("volume_level")) is not None:
