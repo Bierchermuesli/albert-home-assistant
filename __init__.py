@@ -491,14 +491,14 @@ class Plugin(PluginInstance, RankedQueryHandler):
         if words[0] == FAVORITE_VERB:
             return self._favorite_items(entities, words[1:])
         if words[0] == TODO_VERB:
-            return self._todo_items(entities, words[1:])
+            return self._todo_items(entities, query.split()[1:])
         if verb_query := self._parse_verb_query(query):
             verb, terms, value = verb_query
             return self._entity_items(entities, terms, verb, value)
         results = self._entity_items(entities, words)
         if self._todo_list_named(entities, words[0]):
             # 'shop milk' works like 'todo shop milk', ranked together with the entities.
-            results += self._todo_items(entities, words)
+            results += self._todo_items(entities, query.split())
         return results
 
     def _todo_list_named(self, entities, word):
@@ -646,7 +646,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
 
     def _todo_items(self, entities, words):
         """'todo': the lists. 'todo <list> [text]': the open items of that list, with an item to
-        add the text when no open item matches it. Other words search all lists."""
+        add the text when no open item matches it. Other words search all lists. The words keep
+        their case, the text is added as typed."""
         lists = [e for e in entities if e["entity_id"].startswith("todo.") and not self._is_blacklisted(e["entity_id"])]
         if not lists:
             return [RankItem(StandardItem(id="no_todo", text="No to-do lists", icon_factory=self._plugin_icon), 1.0)]
@@ -660,12 +661,13 @@ class Plugin(PluginInstance, RankedQueryHandler):
                                 partial(openUrl, f"{self.active_url}/todo?entity_id={lst['entity_id']}"))]
             ), 1.0) for lst in lists]
 
-        chosen = [lst for lst in lists if words[0] in self._name(lst).lower() or words[0] in lst["entity_id"]]
+        first = words[0].lower()
+        chosen = [lst for lst in lists if first in self._name(lst).lower() or first in lst["entity_id"]]
         if chosen:
             lists, text_words = chosen[:1], words[1:]
         else:
             text_words = words
-        score_of = self._scorer(text_words)
+        score_of = self._scorer([w.lower() for w in text_words])
         text = " ".join(text_words)
         results = []
         for lst in lists:
