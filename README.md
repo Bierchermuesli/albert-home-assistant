@@ -59,7 +59,7 @@ Start with a verb to act directly. Only entities the verb applies to are listed,
 
 ### Steps
 
-Brightness and volume steps (`+10%`, `-10%`) read the current value when they run. Players without a current level, like media player groups, get Home Assistant's own `Volume +` / `Volume -`. Steps and track skipping keep the Albert window open so Enter repeats them, where the Python plugin supports it (`hide_on_activation`, not yet in released Albert); with released Albert the window closes after each step.
+Brightness and volume steps read the current value when they run; their size is a setting (10 % brightness, 5 % volume by default). Players without a current level, like media player groups, get Home Assistant's own `Volume +` / `Volume -`. Steps and track skipping keep the Albert window open so Enter repeats them, where the Python plugin supports it (`hide_on_activation`, not yet in released Albert); with released Albert the window closes after each step.
 
 ## install
 

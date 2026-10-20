@@ -204,6 +204,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
     _state_blacklist = "unknown,unavailable"
     _use_mdi_icons = True
     _cache_seconds = 30
+    _brightness_step = 10
+    _volume_step = 5
 
     # --- plugin state
     headers = {}
@@ -299,6 +301,24 @@ class Plugin(PluginInstance, RankedQueryHandler):
         self.writeConfig("use_mdi_icons", value)
 
     @property
+    def brightness_step(self):
+        return self._brightness_step
+
+    @brightness_step.setter
+    def brightness_step(self, value):
+        self._brightness_step = value
+        self.writeConfig("brightness_step", value)
+
+    @property
+    def volume_step(self):
+        return self._volume_step
+
+    @volume_step.setter
+    def volume_step(self, value):
+        self._volume_step = value
+        self.writeConfig("volume_step", value)
+
+    @property
     def cache_seconds(self):
         return self._cache_seconds
 
@@ -323,6 +343,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
             ("state_blacklist", str, self._state_blacklist),
             ("use_mdi_icons", bool, self._use_mdi_icons),
             ("cache_seconds", int, self._cache_seconds),
+            ("brightness_step", int, self._brightness_step),
+            ("volume_step", int, self._volume_step),
         ]:
             conf = self.readConfig(key, type)
             if conf is None:
@@ -344,6 +366,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
             {"type": "label", "text": "<a href=\"https://developers.home-assistant.io/docs/auth_api/#long-lived-access-token\">Click here for documentation on creating tokens.</a>"},
             {"type": "label", "text": "<b>Appearance & Behavior</b>"},
             {"type": "spinbox", "label": "Entity cache duration (seconds)", "property": "cache_seconds", "widget_properties": {"minimum": 5, "maximum": 300}},
+            {"type": "spinbox", "label": "Brightness step (%)", "property": "brightness_step", "widget_properties": {"minimum": 1, "maximum": 50}},
+            {"type": "spinbox", "label": "Volume step (%)", "property": "volume_step", "widget_properties": {"minimum": 1, "maximum": 50}},
             {"type": "checkbox", "label": "Download missing icons from jsDelivr (MDI)", "property": "use_mdi_icons"},
             {"type": "label", "text": "<b>Hidden entities</b>"},
             {"type": "lineedit", "label": "Hidden domains", "property": "hidden_domains"},
@@ -367,8 +391,23 @@ class Plugin(PluginInstance, RankedQueryHandler):
     def defaultTrigger(self):
         return "ha "
 
+    SYNOPSES = {
+        "vol": "vol <name> [pct]", "volume": "volume <name> [pct]",
+        "bright": "bright <name> [pct]", "brightness": "brightness <name> [pct]",
+        FAVORITE_VERB: "fav [filter]", TODO_VERB: "todo [list] [text]",
+    }
+
     def synopsis(self, query):
-        return "<filter> | play|pause|next|prev|mute|unmute <filter> | vol|bright <filter> <pct> | on|off|toggle <filter> | fav <filter> | todo [list] [item] | info"
+        """The hint for what is being typed: the syntax of a verb or command, else an overview."""
+        words = query.split()
+        if not words:
+            return "<name> | <verb> <name> | fav | todo [list] [text] | info"
+        first = words[0].lower()
+        if first in self.SYNOPSES:
+            return self.SYNOPSES[first]
+        if first in VERB_DOMAINS:
+            return f"{first} <name>"
+        return ""
 
     def _is_hass_url(self, url: str) -> bool:
         return any(url.startswith(u) for u in (self._internal_url, self._public_url) if u)
@@ -795,6 +834,10 @@ class Plugin(PluginInstance, RankedQueryHandler):
             return
         target = max(0, min(100, round(level * 100) + step))
         self._call_service("media_player.volume_set", {"entity_id": entity_id, "volume_level": target / 100})
+        # Unlike lights, media players return no changed state here (Sonos applies it later),
+        # so put the new level into the cache for the subtext.
+        entity["attributes"]["volume_level"] = target / 100
+        self._update_cache([entity])
 
     @staticmethod
     def _name(entity):
@@ -855,14 +898,16 @@ class Plugin(PluginInstance, RankedQueryHandler):
         domain = entity_id.split(".")[0]
         attributes = entity.get("attributes", {})
         if domain == "light":
-            return [self._repeat_action(f"step_{step}", f"{step:+d}%",
-                                        partial(self._step_brightness, entity_id, step)) for step in (10, -10)]
+            step = self.brightness_step
+            return [self._repeat_action(f"step_{s}", f"{s:+d}%",
+                                        partial(self._step_brightness, entity_id, s)) for s in (step, -step)]
         if domain != "media_player":
             return []
         features = attributes.get("supported_features", 0)
         if features & MP_VOLUME_SET and attributes.get("volume_level") is not None:
-            return [self._repeat_action(f"vol_step_{step}", f"Volume {step:+d}%",
-                                        partial(self._step_volume, entity_id, step)) for step in (10, -10)]
+            step = self.volume_step
+            return [self._repeat_action(f"vol_step_{s}", f"Volume {s:+d}%",
+                                        partial(self._step_volume, entity_id, s)) for s in (step, -step)]
         if features & MP_VOLUME_STEP:
             # No current level to step from (e.g. a media player group): HA's own steps, their
             # size is up to the integration.
