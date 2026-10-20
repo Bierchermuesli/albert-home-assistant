@@ -561,7 +561,9 @@ class Plugin(PluginInstance, RankedQueryHandler):
             prepend = []
             if verb and (action := self._verb_action(verb, entity, value)):
                 prepend.append(action)
-            if item := self._build_item(entity, prepend, completion_prefix=verb or ""):
+            # 'vol office' / 'bright desk' without a number: the steps come first.
+            steps_first = verb in VALUE_REQUIRED_VERBS and value is None
+            if item := self._build_item(entity, prepend, completion_prefix=verb or "", steps_first=steps_first):
                 results.append(RankItem(item, score))
             if not verb and entity_id.startswith("media_player.") and entity.get("state") == "playing":
                 if now_playing := self._build_now_playing_item(entity):
@@ -841,18 +843,38 @@ class Plugin(PluginInstance, RankedQueryHandler):
         return round((entity.get("attributes", {}).get("brightness") or 0) * 100 / 255)
 
     def _light_actions(self, entity):
-        """Toggle and brightness steps. A step reads the current brightness when it runs, so it
-        can be repeated while the window stays open; exact values go via 'bright <name> <pct>'."""
+        """Toggle; the brightness steps come from _step_actions, exact values go via
+        'bright <name> <pct>'."""
         entity_id = entity["entity_id"]
-        actions = [Action("toggle", "Toggle", partial(self._call_service, "light.toggle", {"entity_id": entity_id}))]
-        for step in (10, -10):
-            actions.append(self._repeat_action(f"step_{step}", f"{step:+d}%",
-                                               partial(self._step_brightness, entity_id, step)))
-        return actions
+        return [Action("toggle", "Toggle", partial(self._call_service, "light.toggle", {"entity_id": entity_id}))]
+
+    def _step_actions(self, entity):
+        """Brightness or volume steps of a light or media player. A step reads the current value
+        when it runs, so it can be repeated while the window stays open."""
+        entity_id = entity["entity_id"]
+        domain = entity_id.split(".")[0]
+        attributes = entity.get("attributes", {})
+        if domain == "light":
+            return [self._repeat_action(f"step_{step}", f"{step:+d}%",
+                                        partial(self._step_brightness, entity_id, step)) for step in (10, -10)]
+        if domain != "media_player":
+            return []
+        features = attributes.get("supported_features", 0)
+        if features & MP_VOLUME_SET and attributes.get("volume_level") is not None:
+            return [self._repeat_action(f"vol_step_{step}", f"Volume {step:+d}%",
+                                        partial(self._step_volume, entity_id, step)) for step in (10, -10)]
+        if features & MP_VOLUME_STEP:
+            # No current level to step from (e.g. a media player group): HA's own steps, their
+            # size is up to the integration.
+            return [self._repeat_action(f"volume_{direction}", f"Volume {sign}",
+                                        partial(self._call_service, f"media_player.volume_{direction}",
+                                                {"entity_id": entity_id}))
+                    for direction, sign in (("up", "+"), ("down", "-"))]
+        return []
 
     def _media_player_actions(self, entity):
-        """Actions a media player supports, by its supported_features bits. A volume step reads
-        the current level when it runs, so it can be repeated while the window stays open."""
+        """Actions a media player supports, by its supported_features bits; the volume steps
+        come from _step_actions."""
         entity_id, state = entity["entity_id"], entity.get("state")
         attributes = entity.get("attributes", {})
         features = attributes.get("supported_features", 0)
@@ -874,15 +896,6 @@ class Plugin(PluginInstance, RankedQueryHandler):
         if features & MP_VOLUME_MUTE:
             muted = bool(attributes.get("is_volume_muted"))
             add("mute", "Unmute" if muted else "Mute", "volume_mute", is_volume_muted=not muted)
-        if features & MP_VOLUME_SET and attributes.get("volume_level") is not None:
-            for step in (10, -10):
-                actions.append(self._repeat_action(f"vol_step_{step}", f"Volume {step:+d}%",
-                                                   partial(self._step_volume, entity_id, step)))
-        elif features & MP_VOLUME_STEP:
-            # No current level to step from (e.g. a media player group): HA's own steps, their
-            # size is up to the integration.
-            add("volume_up", "Volume +", "volume_up", repeat=True)
-            add("volume_down", "Volume -", "volume_down", repeat=True)
         return actions
 
     def _select_actions(self, entity):
@@ -909,7 +922,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
             value += step
         return actions
 
-    def _build_item(self, entity: dict, prepend_actions=(), completion_prefix=""):
+    def _build_item(self, entity: dict, prepend_actions=(), completion_prefix="", steps_first=False):
         entity_id = entity.get("entity_id")
         if not entity_id:
             return None
@@ -923,6 +936,9 @@ class Plugin(PluginInstance, RankedQueryHandler):
         formatted_state = self._format_state(state, attributes.get("unit_of_measurement"))
 
         actions = list(prepend_actions)
+        steps = self._step_actions(entity)
+        if steps_first:
+            actions += steps
         if domain == "light":
             actions += self._light_actions(entity)
         elif domain == "media_player":
@@ -931,6 +947,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
             actions += self._input_number_actions(entity)
         elif domain in ("select", "input_select"):
             actions += self._select_actions(entity)
+        if not steps_first:
+            actions += steps
         else:
             for action_id, label, service, data in DOMAIN_ACTIONS.get(domain, []):
                 actions.append(Action(action_id, label,

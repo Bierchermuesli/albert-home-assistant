@@ -30,14 +30,36 @@ A name resolves to the cached download, else to the small bundled seed in `icons
 
 ## Usage
 
-- Use the trigger `ha ` (configurable) followed by the entity name or ID.
-- `ha todo` lists the to-do lists, `ha todo <list>` the open items of one (Tab completes the list name). Enter completes an item, other actions reopen or remove it; `ha todo <list> <text>` filters and offers to add the text when no open item matches. `ha todo <text>` searches all lists. The `todo` is optional when the first word starts a list name: `ha shop milk`.
-- `ha fav <filter>` lists the Sonos favorites; Enter plays one on the group that is playing now, the other actions pick a player. Needs the Sonos integration (it provides the favorites sensor and the player groups).
-- Start with a verb to act directly: `ha play|pause|next|prev|mute|unmute <filter>`, `ha vol <filter> <pct>`, `ha bright <filter> <pct>`, `ha on|off|toggle <filter>`. Only entities the verb applies to are listed and the verb's action comes first.
-- Type `ha info` to see connection status, option to Toggle internal/External URL and entity statistics.
-- Use `ha ` with an empty query to see the entities you use most.
-- Press `Alt` on an item to see additional domain-specific actions (e.g., setting light brightness).
-- Step actions (`+10%`, `-10%`, next track, ...) keep the Albert window open so you can repeat them with Enter, where the Python plugin supports it (`hide_on_activation`, not yet in released Albert); with released Albert the window closes after each step. Each step reads the current value when it runs.
+Trigger `ha ` (configurable), then a name or entity id. The empty query shows the entities you use most. `Alt` shows all actions of an item.
+
+### Verbs
+
+Start with a verb to act directly. Only entities the verb applies to are listed, and the verb's action comes first.
+
+| Verb | Applies to | Does |
+|---|---|---|
+| `play` | media player | play |
+| `pause` | media player | pause |
+| `next` / `prev` | media player | next / previous track |
+| `mute` / `unmute` | media player | mute / unmute |
+| `vol <name> [pct]` (or `volume`) | media player | set the volume; without a number the volume steps come first |
+| `bright <name> [pct]` (or `brightness`) | light | set the brightness; without a number the brightness steps come first |
+| `on` | light, switch, fan, input boolean, scene, script, cover, media player | turn on, activate, run, open, play |
+| `off` | light, switch, fan, input boolean, cover, media player | turn off, close, stop |
+| `toggle` | light, switch, fan, input boolean, cover | toggle |
+
+### Commands
+
+| Command | Does |
+|---|---|
+| `fav [filter]` | Sonos favorites; Enter plays one on the group that is playing now, the other actions pick a group or player. Needs the Sonos integration. |
+| `todo [list] [text]` | To-do lists and their open items: complete, reopen, remove; offers to add the text when no open item matches. Without a list name it searches all lists. |
+| `shop milk` | Same as `todo shop milk` when the first word starts a list name. |
+| `info` | Active URL (with a switch between internal and public) and entity counts. |
+
+### Steps
+
+Brightness and volume steps (`+10%`, `-10%`) read the current value when they run. Players without a current level, like media player groups, get Home Assistant's own `Volume +` / `Volume -`. Steps and track skipping keep the Albert window open so Enter repeats them, where the Python plugin supports it (`hide_on_activation`, not yet in released Albert); with released Albert the window closes after each step.
 
 ## install
 
