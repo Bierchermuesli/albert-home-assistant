@@ -562,7 +562,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
         def score(*strings):
             match = matcher.match(list(strings))
             if match:
-                return match
+                return float(match)  # a Match object, the callers compare and combine scores
             haystack = " ".join(strings).lower()
             return 0.1 if all(word in haystack for word in words) else None
         return score
