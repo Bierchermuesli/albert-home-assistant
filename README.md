@@ -26,7 +26,12 @@ Serch by Verb:
 
 You can also set values directly:
 
-<img width="650" alt="image" src="https://github.com/user-attachments/assets/a1b87736-dc59-4453-9d24-cb2df997a6d1" />
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/19f101f2-588e-4143-9a8c-7da76bd32af5" />
+
+Since 2026.11 release you can also search by Areas:
+
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/e830fb66-25bb-4940-b4e0-62d6eca135d2" />
+
 
 Shopping list add/Complete:
 
