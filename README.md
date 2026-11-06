@@ -16,15 +16,18 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 - **MDI Icons**: Automatically fetches and caches Material Design Icons from jsDelivr to match your Home Assistant UI (opt out possible).
 - **Colored Icons**: Active entities (like lights that are 'on') are displayed with colored icons
 
-Search by Entities Names
+Search by Entities Names:
 
 <img width="889" height="532" alt="image" src="https://github.com/user-attachments/assets/6033736c-2b59-44ce-8c06-06bc3393d3bc" />
 
 Serch by Verb:
-
 <img width="882" height="640" alt="image" src="https://github.com/user-attachments/assets/d492b54e-ab61-46eb-919b-feb0fe6001af" />
 
-Shopping list add/Complete
+You can also set values directly:
+
+<img width="891" height="330" alt="image" src="https://github.com/user-attachments/assets/a1b87736-dc59-4453-9d24-cb2df997a6d1" />
+
+Shopping list add/Complete:
 
 <img width="886" height="137" alt="image" src="https://github.com/user-attachments/assets/27498f06-5d7f-455d-b304-06a559da5a26" />
 <img width="893" height="434" alt="image" src="https://github.com/user-attachments/assets/129c3821-1db8-4248-9093-0fd29df1bdc7" />
@@ -86,6 +89,10 @@ Simple clone to Albert plugin directory and activate in Albert Python Modules Se
 ```
 git clone https://github.com/Bierchermuesli/albert-home-assistant.git ~/.local/share/albert/python/plugins/albert-home-assistant
 ```
+
+Settings Dialog:
+<img width="625" height="613" alt="image" src="https://github.com/user-attachments/assets/d02de6ae-c93e-4091-b4f1-e4da447ffa7e" />
+
 
 ## Work-in-Progress
 
