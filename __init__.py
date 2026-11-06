@@ -607,7 +607,10 @@ class Plugin(PluginInstance, RankedQueryHandler):
                 prepend.append(action)
             # 'vol office' / 'bright desk' without a number: the steps come first.
             steps_first = verb in VALUE_REQUIRED_VERBS and value is None
-            if item := self._build_item(entity, prepend, completion_prefix=verb or "", steps_first=steps_first):
+            # Tab completes the name and keeps a typed value: 'temp heiz 22' -> 'temp Heizung2 22'.
+            suffix = f"{value:g}" if value is not None else ""
+            if item := self._build_item(entity, prepend, completion_prefix=verb or "", steps_first=steps_first,
+                                        completion_suffix=suffix):
                 results.append(RankItem(item, score))
             if not verb and entity_id.startswith("media_player.") and entity.get("state") == "playing":
                 if now_playing := self._build_now_playing_item(entity):
@@ -1005,7 +1008,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
             value += step
         return actions
 
-    def _build_item(self, entity: dict, prepend_actions=(), completion_prefix="", steps_first=False):
+    def _build_item(self, entity: dict, prepend_actions=(), completion_prefix="", steps_first=False,
+                    completion_suffix=""):
         entity_id = entity.get("entity_id")
         if not entity_id:
             return None
@@ -1042,7 +1046,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
         if domain not in STATELESS_DOMAINS:
             actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
 
-        return EntityItem(self, entity, actions, f"{completion_prefix} {friendly_name}".strip())
+        return EntityItem(self, entity, actions, f"{completion_prefix} {friendly_name} {completion_suffix}".strip())
 
     def _subtext(self, entity):
         """'Light is On · 55%': domain, state and the value a step changes."""
