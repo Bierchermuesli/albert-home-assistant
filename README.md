@@ -56,7 +56,9 @@ Settings Dialog:
 
 ## Usage
 
-Trigger `ha ` (configurable), then a name or entity id. The empty query shows the entities you use most. `Alt` shows all actions of an item.
+Trigger `ha ` (configurable), then a name, entity id or area: `ha kitchen` lists everything in the kitchen, `off kitchen` what can be turned off there. The subtext shows the area. The empty query shows the entities you use most. `Alt` shows all actions of an item.
+
+Areas and the fallback for names come from Home Assistant's `area_name()`, `device_name()` and `entity_name()` template functions (Home Assistant 2026.11 or newer, one request together with the states). Names are `friendly_name` as long as Home Assistant provides it, else device and entity name as Home Assistant composes them.
 
 ### Verbs
 

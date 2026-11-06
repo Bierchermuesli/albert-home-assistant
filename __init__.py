@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import hashlib
 
 md_iid = "5.0"
-md_version = "3.8"
+md_version = "3.9"
 
 # Verb-first command mode: the first word of the query is a verb that restricts the candidate
 # domains, so "play office" never lists office lamps. (verb, domain) -> (service, label).
@@ -214,6 +214,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
     # --- plugin state
     headers = {}
     entities_cache = None
+    registry_names = {}  # entity id -> (entity name, device name, area name), see _get_entities
     last_entities_fetch_time = 0
     active_url = ""
 
@@ -496,9 +497,27 @@ class Plugin(PluginInstance, RankedQueryHandler):
         else:
             response = self._make_api_request("get", "/api/states")
             entities = response.json()
+            self.registry_names = self._get_registry_names()
             self.entities_cache = entities
             self.last_entities_fetch_time = time.time()
             return entities
+
+    # Entity, device and area names of all entities in one request. /api/states has only
+    # friendly_name, which Home Assistant plans to deprecate (2026.11 composes names from
+    # entity and device); the template functions are the replacement.
+    REGISTRY_NAMES_TEMPLATE = (
+        "{% set ns = namespace(r={}) %}{% for s in states %}"
+        "{% set ns.r = dict(ns.r, **{s.entity_id: [entity_name(s.entity_id), device_name(s.entity_id),"
+        " area_name(s.entity_id)]}) %}{% endfor %}{{ ns.r | tojson }}")
+
+    def _get_registry_names(self):
+        """Names by entity id; empty when the template fails, e.g. before Home Assistant 2026.11."""
+        try:
+            response = self._make_api_request("post", "/api/template", json={"template": self.REGISTRY_NAMES_TEMPLATE})
+            return {entity_id: tuple(names) for entity_id, names in response.json().items()}
+        except (requests.exceptions.RequestException, ValueError, AttributeError) as e:
+            warning(f"Could not read entity, device and area names: {e}")
+            return {}
 
     # The empty query shows the entities used most, ranked by Albert's usage scoring.
     EMPTY_QUERY_ITEMS = 10
@@ -599,7 +618,10 @@ class Plugin(PluginInstance, RankedQueryHandler):
                 continue
             if domains and entity_id.split(".")[0] not in domains:
                 continue
-            score = score_of(entity_id, self._name(entity))
+            # The area as well, so 'ha kitchen' lists everything in the kitchen and 'off kitchen
+            # lamp' finds the kitchen lamps.
+            name, area = self._name(entity), self._area(entity)
+            score = score_of(entity_id, name, f"{area} {name}") if area else score_of(entity_id, name)
             if score is None:
                 continue
             prepend = []
@@ -865,9 +887,15 @@ class Plugin(PluginInstance, RankedQueryHandler):
         target = max(attributes.get("min_temp", target), min(attributes.get("max_temp", target), target))
         self._call_service("climate.set_temperature", {"entity_id": entity_id, "temperature": target})
 
-    @staticmethod
-    def _name(entity):
-        return entity.get("attributes", {}).get("friendly_name", entity["entity_id"])
+    def _name(self, entity):
+        """friendly_name, else device and entity name as Home Assistant composes them."""
+        if name := entity.get("attributes", {}).get("friendly_name"):
+            return name
+        entity_name, device_name, _ = self.registry_names.get(entity["entity_id"], (None, None, None))
+        return " ".join(n for n in (device_name, entity_name) if n) or entity["entity_id"]
+
+    def _area(self, entity):
+        return self.registry_names.get(entity["entity_id"], (None, None, None))[2] or ""
 
     @staticmethod
     def _format_state(state: str, unit: str | None) -> str:
@@ -1049,7 +1077,13 @@ class Plugin(PluginInstance, RankedQueryHandler):
         return EntityItem(self, entity, actions, f"{completion_prefix} {friendly_name} {completion_suffix}".strip())
 
     def _subtext(self, entity):
-        """'Light is On · 55%': domain, state and the value a step changes."""
+        """'Light is On · 55% · Kitchen': domain, state, the value a step changes, area."""
+        subtext = self._state_subtext(entity)
+        if area := self._area(entity):
+            subtext += f" · {area}"
+        return subtext
+
+    def _state_subtext(self, entity):
         domain = entity["entity_id"].split(".")[0]
         attributes = entity.get("attributes", {})
         state = entity.get("state", "unknown")
