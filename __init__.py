@@ -15,11 +15,11 @@ import xml.etree.ElementTree as ET
 import hashlib
 
 md_iid = "5.0"
-md_version = "3.7"
+md_version = "3.8"
 
 # Verb-first command mode: the first word of the query is a verb that restricts the candidate
 # domains, so "play office" never lists office lamps. (verb, domain) -> (service, label).
-# {pct} is filled in for the verbs that take a number.
+# {pct} or {value} is filled in for the verbs that take a number.
 VERB_SERVICES = {
     ("play",       "media_player"):  ("media_player.media_play",           "Play {name}"),
     ("pause",      "media_player"):  ("media_player.media_pause",          "Pause {name}"),
@@ -39,12 +39,15 @@ VERB_SERVICES = {
     ("on",         "script"):        ("script.turn_on",                    "Run {name}"),
     ("on",         "cover"):         ("cover.open_cover",                  "Open {name}"),
     ("on",         "media_player"):  ("media_player.media_play",           "Play {name}"),
+    ("on",         "climate"):       ("climate.turn_on",                   "Turn on {name}"),
     ("off",        "light"):         ("light.turn_off",                    "Turn off {name}"),
     ("off",        "switch"):        ("switch.turn_off",                   "Turn off {name}"),
     ("off",        "fan"):           ("fan.turn_off",                      "Turn off {name}"),
     ("off",        "input_boolean"): ("input_boolean.turn_off",            "Turn off {name}"),
     ("off",        "cover"):         ("cover.close_cover",                 "Close {name}"),
     ("off",        "media_player"):  ("media_player.media_stop",           "Stop {name}"),
+    ("off",        "climate"):       ("climate.turn_off",                  "Turn off {name}"),
+    ("temp",       "climate"):       ("climate.set_temperature",           "Set {name} to {value}°"),
     ("toggle",     "light"):         ("light.toggle",                      "Toggle {name}"),
     ("toggle",     "switch"):        ("switch.toggle",                     "Toggle {name}"),
     ("toggle",     "fan"):           ("fan.toggle",                        "Toggle {name}"),
@@ -56,7 +59,7 @@ VERB_DOMAINS = {}
 for _verb, _domain in VERB_SERVICES:
     VERB_DOMAINS.setdefault(_verb, []).append(_domain)
 
-VALUE_REQUIRED_VERBS = {"vol", "volume", "bright", "brightness"}
+VALUE_REQUIRED_VERBS = {"vol", "volume", "bright", "brightness", "temp"}
 
 # 'fav' lists the Sonos favorites (sensor.*_favorites of the Sonos integration) to play on a
 # Sonos player, i.e. a media_player with the group_members attribute.
@@ -148,7 +151,7 @@ STATE_ICONS = {
     ("update", "on"): "package-up",
 }
 
-ACTIVE_STATES = {"on", "playing", "open"}
+ACTIVE_STATES = {"on", "playing", "open", "heat", "cool", "heat_cool", "auto", "dry", "fan_only"}
 
 # Domains whose state is only the time of the last press/activation ('unknown' before the
 # first one), so the hidden states do not apply and the subtext says when instead of what.
@@ -158,6 +161,7 @@ ACTIVE_COLOR = "#FFC107"  # amber, as in the Home Assistant UI
 # media_player supported_features bits, see homeassistant.components.media_player.const
 MP_PAUSE, MP_VOLUME_SET, MP_VOLUME_MUTE = 1, 4, 8
 MP_PREVIOUS_TRACK, MP_NEXT_TRACK, MP_VOLUME_STEP, MP_PLAY = 16, 32, 1024, 16384
+CLIMATE_TARGET_TEMPERATURE = 1
 
 md_name = "Home Assistant"
 md_description = "View and control Home Assistant devices"
@@ -394,6 +398,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
     SYNOPSES = {
         "vol": "vol <name> [pct]", "volume": "volume <name> [pct]",
         "bright": "bright <name> [pct]", "brightness": "brightness <name> [pct]",
+        "temp": "temp <name> [degrees]",
         FAVORITE_VERB: "fav [filter]", TODO_VERB: "todo [list] [text]",
     }
 
@@ -755,7 +760,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
             return None
         service, label = VERB_SERVICES[(verb, domain)]
         data = {"entity_id": entity_id}
-        pct = None
+        pct = number = None
         if verb in ("vol", "volume"):
             level = max(0.0, min(1.0, value / 100))
             data["volume_level"] = level
@@ -763,11 +768,20 @@ class Plugin(PluginInstance, RankedQueryHandler):
         elif verb in ("bright", "brightness"):
             pct = max(0, min(100, int(value)))
             data["brightness_pct"] = pct
+        elif verb == "temp":
+            attributes = entity.get("attributes", {})
+            number = max(attributes.get("min_temp", value), min(attributes.get("max_temp", value), value))
+            data["temperature"] = number
+            # Setting a temperature on a device that is off means: heat (or cool) to it.
+            modes = [m for m in attributes.get("hvac_modes", []) if m != "off"]
+            if entity.get("state") == "off" and len(modes) == 1:
+                data["hvac_mode"] = modes[0]
+            number = f"{number:g}"
         elif verb == "mute":
             data["is_volume_muted"] = True
         elif verb == "unmute":
             data["is_volume_muted"] = False
-        return Action(f"verb_{verb}", label.format(name=self._name(entity), pct=pct),
+        return Action(f"verb_{verb}", label.format(name=self._name(entity), pct=pct, value=number),
                       partial(self._call_service, service, data))
 
     def _info_items(self, entities):
@@ -839,6 +853,15 @@ class Plugin(PluginInstance, RankedQueryHandler):
         entity["attributes"]["volume_level"] = target / 100
         self._update_cache([entity])
 
+    def _step_temperature(self, entity_id: str, step: float):
+        entity = self._current_state(entity_id)
+        attributes = entity.get("attributes", {}) if entity else {}
+        if attributes.get("temperature") is None:
+            return
+        target = attributes["temperature"] + step
+        target = max(attributes.get("min_temp", target), min(attributes.get("max_temp", target), target))
+        self._call_service("climate.set_temperature", {"entity_id": entity_id, "temperature": target})
+
     @staticmethod
     def _name(entity):
         return entity.get("attributes", {}).get("friendly_name", entity["entity_id"])
@@ -901,6 +924,14 @@ class Plugin(PluginInstance, RankedQueryHandler):
             step = self.brightness_step
             return [self._repeat_action(f"step_{s}", f"{s:+d}%",
                                         partial(self._step_brightness, entity_id, s)) for s in (step, -step)]
+        if domain == "climate":
+            # No target temperature while off; the mode actions turn it on first.
+            if not attributes.get("supported_features", 0) & CLIMATE_TARGET_TEMPERATURE \
+                    or attributes.get("temperature") is None:
+                return []
+            step = attributes.get("target_temp_step") or 0.5
+            return [self._repeat_action(f"temp_step_{s}", f"{s:+g}°",
+                                        partial(self._step_temperature, entity_id, s)) for s in (step, -step)]
         if domain != "media_player":
             return []
         features = attributes.get("supported_features", 0)
@@ -942,6 +973,13 @@ class Plugin(PluginInstance, RankedQueryHandler):
             muted = bool(attributes.get("is_volume_muted"))
             add("mute", "Unmute" if muted else "Mute", "volume_mute", is_volume_muted=not muted)
         return actions
+
+    def _climate_actions(self, entity):
+        """One action per HVAC mode, the current one left out."""
+        entity_id = entity["entity_id"]
+        return [Action(f"mode_{mode}", "Turn off" if mode == "off" else f"Mode: {mode.replace('_', ' ').capitalize()}",
+                       partial(self._call_service, "climate.set_hvac_mode", {"entity_id": entity_id, "hvac_mode": mode}))
+                for mode in entity.get("attributes", {}).get("hvac_modes", []) if mode != entity.get("state")]
 
     def _select_actions(self, entity):
         """One action per option of a select, the current one left out."""
@@ -990,14 +1028,16 @@ class Plugin(PluginInstance, RankedQueryHandler):
             actions += self._media_player_actions(entity)
         elif domain == "input_number":
             actions += self._input_number_actions(entity)
+        elif domain == "climate":
+            actions += self._climate_actions(entity)
         elif domain in ("select", "input_select"):
             actions += self._select_actions(entity)
-        if not steps_first:
-            actions += steps
         else:
             for action_id, label, service, data in DOMAIN_ACTIONS.get(domain, []):
                 actions.append(Action(action_id, label,
                                       partial(self._call_service, service, {"entity_id": entity_id, **data})))
+        if not steps_first:
+            actions += steps
         actions.append(Action("copy_entity_id", f"Copy '{entity_id}'", partial(setClipboardText, entity_id)))
         if domain not in STATELESS_DOMAINS:
             actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
@@ -1019,6 +1059,12 @@ class Plugin(PluginInstance, RankedQueryHandler):
         elif domain == "media_player" and (volume := attributes.get("volume_level")) is not None:
             muted = " (muted)" if attributes.get("is_volume_muted") else ""
             subtext += f" · {round(volume * 100)}%{muted}"
+        elif domain == "climate":
+            current, target = attributes.get("current_temperature"), attributes.get("temperature")
+            if current is not None:
+                subtext += f" · {current:g}°" + (f" → {target:g}°" if target is not None else "")
+            if attributes.get("hvac_action") not in (None, "off", "idle"):
+                subtext += f" · {attributes['hvac_action']}"
         return subtext
 
     # --- icons --------------------------------------------------------------------------------

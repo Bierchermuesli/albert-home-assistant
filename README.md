@@ -62,8 +62,9 @@ Start with a verb to act directly. Only entities the verb applies to are listed,
 | `mute` / `unmute` | media player | mute / unmute |
 | `vol <name> [pct]` (or `volume`) | media player | set the volume; without a number the volume steps come first |
 | `bright <name> [pct]` (or `brightness`) | light | set the brightness; without a number the brightness steps come first |
-| `on` | light, switch, fan, input boolean, scene, script, cover, media player | turn on, activate, run, open, play |
-| `off` | light, switch, fan, input boolean, cover, media player | turn off, close, stop |
+| `temp <name> [degrees]` | climate | set the target temperature, turning a device that is off on; without a number the temperature steps come first |
+| `on` | light, switch, fan, input boolean, scene, script, cover, media player, climate | turn on, activate, run, open, play |
+| `off` | light, switch, fan, input boolean, cover, media player, climate | turn off, close, stop |
 | `toggle` | light, switch, fan, input boolean, cover | toggle |
 
 ### Commands
@@ -77,7 +78,7 @@ Start with a verb to act directly. Only entities the verb applies to are listed,
 
 ### Steps
 
-Brightness and volume steps read the current value when they run; their size is a setting (10 % brightness, 5 % volume by default). Players without a current level, like media player groups, get Home Assistant's own `Volume +` / `Volume -`. Steps and track skipping keep the Albert window open so Enter repeats them, where the Python plugin supports it (`hide_on_activation`, not yet in released Albert); with released Albert the window closes after each step.
+Brightness, volume and temperature steps read the current value when they run; the brightness and volume step sizes are settings (10 % brightness, 5 % volume by default), the temperature step is the device's own (`target_temp_step`, else 0.5°). A climate device that is off has no target temperature, so no steps; its HVAC mode actions turn it on. Players without a current level, like media player groups, get Home Assistant's own `Volume +` / `Volume -`. Steps and track skipping keep the Albert window open so Enter repeats them, where the Python plugin supports it (`hide_on_activation`, not yet in released Albert); with released Albert the window closes after each step.
 
 ## install
 
