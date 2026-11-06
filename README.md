@@ -18,36 +18,36 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 
 Search by Entities Names:
 
-<img width="889" height="532" alt="image" src="https://github.com/user-attachments/assets/6033736c-2b59-44ce-8c06-06bc3393d3bc" />
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/6033736c-2b59-44ce-8c06-06bc3393d3bc" />
 
 Serch by Verb:
-<img width="882" height="640" alt="image" src="https://github.com/user-attachments/assets/d492b54e-ab61-46eb-919b-feb0fe6001af" />
+
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/d492b54e-ab61-46eb-919b-feb0fe6001af" />
 
 You can also set values directly:
 
-<img width="891" height="330" alt="image" src="https://github.com/user-attachments/assets/a1b87736-dc59-4453-9d24-cb2df997a6d1" />
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/a1b87736-dc59-4453-9d24-cb2df997a6d1" />
 
 Shopping list add/Complete:
 
-<img width="886" height="137" alt="image" src="https://github.com/user-attachments/assets/27498f06-5d7f-455d-b304-06a559da5a26" />
-<img width="893" height="434" alt="image" src="https://github.com/user-attachments/assets/129c3821-1db8-4248-9093-0fd29df1bdc7" />
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/27498f06-5d7f-455d-b304-06a559da5a26" />
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/129c3821-1db8-4248-9093-0fd29df1bdc7" />
 
 
 Info/Debug or to enforce Internal/External URL:
-<img width="886" height="257" alt="image" src="https://github.com/user-attachments/assets/161d3c00-cddd-4ada-8c23-bbec3be8687d" />
+
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/161d3c00-cddd-4ada-8c23-bbec3be8687d" />
 
 
-## Icons
-
-Every icon is a [Material Design Icon](https://pictogrammers.com/library/mdi/), named the way Home Assistant names it: the entity's own `icon` attribute, or the default the Home Assistant frontend derives from domain, device class and state (a thermometer for a temperature sensor, an open door for a door sensor that is on, ...). The mapping lives in a few tables at the top of the plugin.
-
-A name resolves to the cached download, else to the small bundled seed in `icons/mdi` (the defaults, so it works offline), else the icon is downloaded from jsDelivr in a background thread while the Home Assistant logo stands in; the next query shows the proper icon. Downloads can be switched off in the settings. Active entities (lights that are on, players that play) get an amber tinted copy, done by rewriting the SVG fill, since the Albert API has no tinting primitive. Queries never wait on the network.
 
 ## Configuration
 
 1. **Internal URL**: The local address of your Home Assistant instance (e.g., `http://homeassistant.local:8123`).
 2. **Public URL (Optional)**: Your external address for when you are away from home.
 3. **Long-Lived Access Token**: Generate this in your Home Assistant profile settings see [Guide](https://developers.home-assistant.io/docs/auth_api/#long-lived-access-token).
+Settings Dialog:
+
+<img width="450" alt="image" src="https://github.com/user-attachments/assets/d02de6ae-c93e-4091-b4f1-e4da447ffa7e" />
 
 ## Usage
 
@@ -90,8 +90,7 @@ Simple clone to Albert plugin directory and activate in Albert Python Modules Se
 git clone https://github.com/Bierchermuesli/albert-home-assistant.git ~/.local/share/albert/python/plugins/albert-home-assistant
 ```
 
-Settings Dialog:
-<img width="625" height="613" alt="image" src="https://github.com/user-attachments/assets/d02de6ae-c93e-4091-b4f1-e4da447ffa7e" />
+
 
 
 ## Work-in-Progress
@@ -99,3 +98,9 @@ Settings Dialog:
 - this plugin has some work-in-progress features and may not cover all Home Assistant domains or entity types.
 - feel free to open issues or contribute to the project directly
 - Icon/Coloring is a workaround (see [Icons](#icons)). Respect legal and licensing requirements.
+
+## Icons
+
+Every icon is a [Material Design Icon](https://pictogrammers.com/library/mdi/), named the way Home Assistant names it: the entity's own `icon` attribute, or the default the Home Assistant frontend derives from domain, device class and state (a thermometer for a temperature sensor, an open door for a door sensor that is on, ...). The mapping lives in a few tables at the top of the plugin.
+
+A name resolves to the cached download, else to the small bundled seed in `icons/mdi` (the defaults, so it works offline), else the icon is downloaded from jsDelivr in a background thread while the Home Assistant logo stands in; the next query shows the proper icon. Downloads can be switched off in the settings. Active entities (lights that are on, players that play) get an amber tinted copy, done by rewriting the SVG fill, since the Albert API has no tinting primitive. Queries never wait on the network.
