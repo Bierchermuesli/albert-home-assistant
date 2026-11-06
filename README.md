@@ -16,6 +16,24 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
 - **MDI Icons**: Automatically fetches and caches Material Design Icons from jsDelivr to match your Home Assistant UI (opt out possible).
 - **Colored Icons**: Active entities (like lights that are 'on') are displayed with colored icons
 
+Search by Entities Names
+
+<img width="889" height="532" alt="image" src="https://github.com/user-attachments/assets/6033736c-2b59-44ce-8c06-06bc3393d3bc" />
+
+Serch by Verb:
+
+<img width="882" height="640" alt="image" src="https://github.com/user-attachments/assets/d492b54e-ab61-46eb-919b-feb0fe6001af" />
+
+Shopping list add/Complete
+
+<img width="886" height="137" alt="image" src="https://github.com/user-attachments/assets/27498f06-5d7f-455d-b304-06a559da5a26" />
+<img width="893" height="434" alt="image" src="https://github.com/user-attachments/assets/129c3821-1db8-4248-9093-0fd29df1bdc7" />
+
+
+Info/Debug or to enforce Internal/External URL:
+<img width="886" height="257" alt="image" src="https://github.com/user-attachments/assets/161d3c00-cddd-4ada-8c23-bbec3be8687d" />
+
+
 ## Icons
 
 Every icon is a [Material Design Icon](https://pictogrammers.com/library/mdi/), named the way Home Assistant names it: the entity's own `icon` attribute, or the default the Home Assistant frontend derives from domain, device class and state (a thermometer for a temperature sensor, an open door for a door sensor that is on, ...). The mapping lives in a few tables at the top of the plugin.
