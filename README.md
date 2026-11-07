@@ -77,6 +77,8 @@ Start with a verb to act directly. Only entities the verb applies to are listed,
 | `off` | light, switch, fan, input boolean, cover, media player, climate | turn off, close, stop |
 | `toggle` | light, switch, fan, input boolean, cover | toggle |
 
+`on` lists only what is off and `off` only what is on, unless nothing else matches: a light group counts as on as soon as one of its lights is.
+
 ### Commands
 
 | Command | Does |

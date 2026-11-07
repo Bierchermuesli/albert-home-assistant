@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import hashlib
 
 md_iid = "5.0"
-md_version = "3.9"
+md_version = "3.10"
 
 # Verb-first command mode: the first word of the query is a verb that restricts the candidate
 # domains, so "play office" never lists office lamps. (verb, domain) -> (service, label).
@@ -152,6 +152,11 @@ STATE_ICONS = {
 }
 
 ACTIVE_STATES = {"on", "playing", "open", "heat", "cool", "heat_cool", "auto", "dry", "fan_only"}
+# State an entity is already in when 'on' or 'off' would do nothing, by domain; others use
+# ACTIVE_STATES. Covers: 'on' opens, 'off' closes, so a half open cover is listed for both.
+# Media players: 'on' plays, 'off' stops.
+ALREADY_ON = {"cover": {"open"}, "media_player": {"playing"}}
+ALREADY_OFF = {"cover": {"closed"}, "media_player": {"off", "idle", "standby"}}
 
 # Domains whose state is only the time of the last press/activation ('unknown' before the
 # first one), so the hidden states do not apply and the subtext says when instead of what.
@@ -606,12 +611,26 @@ class Plugin(PluginInstance, RankedQueryHandler):
                     break
         return verb, [t.lower() for t in rest], value
 
+    @staticmethod
+    def _already(verb, entity):
+        """Whether 'on' or 'off' would leave the entity as it is. Scenes and scripts never are."""
+        domain, state = entity["entity_id"].split(".")[0], entity.get("state")
+        if verb == "on" and domain not in ("scene", "script"):
+            return state in ALREADY_ON.get(domain, ACTIVE_STATES)
+        if verb == "off":
+            if domain in ALREADY_OFF:
+                return state in ALREADY_OFF[domain]
+            return state not in ACTIVE_STATES
+        return False
+
     def _entity_items(self, entities, words, verb=None, value=None):
         """Ranked items for the entities matching the words by id or name. With a verb only its
-        domains are candidates and the verb's action comes first."""
+        domains are candidates and the verb's action comes first. 'on' and 'off' list only what
+        they would change, unless nothing else matches: a light group is on as soon as one of its
+        lights is, or the state may be stale."""
         score_of = self._scorer(words)
         domains = VERB_DOMAINS.get(verb) if verb else None
-        results = []
+        results, already = [], []
         for entity in entities:
             entity_id = entity["entity_id"]
             if self._is_blacklisted(entity_id):
@@ -633,11 +652,11 @@ class Plugin(PluginInstance, RankedQueryHandler):
             suffix = f"{value:g}" if value is not None else ""
             if item := self._build_item(entity, prepend, completion_prefix=verb or "", steps_first=steps_first,
                                         completion_suffix=suffix):
-                results.append(RankItem(item, score))
+                (already if self._already(verb, entity) else results).append(RankItem(item, score))
             if not verb and entity_id.startswith("media_player.") and entity.get("state") == "playing":
                 if now_playing := self._build_now_playing_item(entity):
                     results.append(RankItem(now_playing, score))
-        return results
+        return results or already
 
     def _sonos_groups(self, entities):
         """[(coordinator entity, [member entities])] of the Sonos players, grouped as they are
