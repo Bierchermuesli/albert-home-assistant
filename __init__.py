@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import hashlib
 
 md_iid = "5.0"
-md_version = "3.10"
+md_version = "3.11"
 
 # Verb-first command mode: the first word of the query is a verb that restricts the candidate
 # domains, so "play office" never lists office lamps. (verb, domain) -> (service, label).
@@ -234,6 +234,10 @@ class Plugin(PluginInstance, RankedQueryHandler):
         self._download_lock = threading.Lock()
         self._pending_downloads = set()
         self.todo_cache = {}  # list entity id -> (fetch time, items)
+        # One session for all requests: keeps the connections, so name lookup, TCP and TLS
+        # happen once instead of on every request.
+        self.session = requests.Session()
+        self.slow_request = None  # (time, request, [(url label, seconds, error or None)])
 
         self._init_configuration()
         self._update_headers()
@@ -454,7 +458,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
 
         def _fetch():
             try:
-                response = requests.get(full_url, timeout=5, headers=headers)
+                response = self.session.get(full_url, timeout=5, headers=headers)
                 if response.status_code == 200:
                     with open(cached_path, 'wb') as f:
                         f.write(response.content)
@@ -480,21 +484,49 @@ class Plugin(PluginInstance, RankedQueryHandler):
             self.active_url = self._internal_url
             info(f"Switched active Home Assistant URL to internal: {self.active_url}")
 
+    # Requests slower than this are logged and shown in 'ha info'. The timeout does not cover
+    # the name lookup, so a stale DNS server (e.g. left by a VPN) adds its own delay.
+    SLOW_REQUEST_SECONDS = 1.0
+    SLOW_REQUEST_SHOWN_SECONDS = 3600
+
+    def _url_label(self, url):
+        return "internal" if url == self._internal_url else "public" if url == self._public_url else url
+
     def _make_api_request(self, method, endpoint, **kwargs):
         urls_to_try = [self.active_url, self.public_url if self.active_url == self.internal_url else self.internal_url]
         last_exception = None
-        for url in filter(None, urls_to_try):
-            try:
-                response = requests.request(method, f"{url}{endpoint}", headers=self.headers, timeout=3, **kwargs)
-                response.raise_for_status()
-                if self.active_url != url:
-                    info(f"Switched active Home Assistant URL to: {url}")
-                    self.active_url = url
-                return response
-            except requests.exceptions.RequestException as e:
-                last_exception = e
-                warning(f"API request to {url} failed: {e}")
-        raise last_exception
+        attempts = []  # (url label, seconds, error or None)
+        try:
+            for url in filter(None, urls_to_try):
+                start = time.monotonic()
+                try:
+                    response = self.session.request(method, f"{url}{endpoint}", headers=self.headers, timeout=3, **kwargs)
+                    response.raise_for_status()
+                    attempts.append((self._url_label(url), time.monotonic() - start, None))
+                    if self.active_url != url:
+                        info(f"Switched active Home Assistant URL to: {url}")
+                        self.active_url = url
+                    return response
+                except requests.exceptions.HTTPError as e:
+                    # Home Assistant answered, the other URL would answer the same
+                    attempts.append((self._url_label(url), time.monotonic() - start, type(e).__name__))
+                    warning(f"API request to {url} failed: {e}")
+                    raise
+                except requests.exceptions.RequestException as e:
+                    attempts.append((self._url_label(url), time.monotonic() - start, type(e).__name__))
+                    last_exception = e
+                    warning(f"API request to {url} failed: {e}")
+            raise last_exception
+        finally:
+            if attempts and (len(attempts) > 1 or attempts[0][1] > self.SLOW_REQUEST_SECONDS):
+                request = f"{method.upper()} {endpoint}"
+                warning(f"Slow request {request}: {self._format_attempts(attempts)}")
+                self.slow_request = (time.time(), request, attempts)
+
+    @staticmethod
+    def _format_attempts(attempts):
+        return ", then ".join(f"{label} {seconds:.1f} s" + (f" ({error})" if error else "")
+                              for label, seconds, error in attempts)
 
     def _get_entities(self):
         if self.entities_cache and (time.time() - self.last_entities_fetch_time) < self.cache_seconds:
@@ -837,7 +869,16 @@ class Plugin(PluginInstance, RankedQueryHandler):
             which = "internal" if self.active_url == self._internal_url else "public"
             other = "public" if which == "internal" else "internal"
             subtext = f"Using {which} URL. Action to switch to {other}."
-        return [
+        items = []
+        if self.slow_request and time.time() - self.slow_request[0] < self.SLOW_REQUEST_SHOWN_SECONDS:
+            when, request, attempts = self.slow_request
+            minutes = int((time.time() - when) // 60)
+            items.append(StandardItem(
+                id="info_slow", text=f"Slow request {minutes} min ago: {request}" if minutes else f"Slow request just now: {request}",
+                subtext=self._format_attempts(attempts),
+                icon_factory=self._plugin_icon,
+                actions=[Action("clear_slow", "Clear", lambda: setattr(self, "slow_request", None))]))
+        return items + [
             StandardItem(id="info_url", text=f"Active URL: {self.active_url}", subtext=subtext,
                          icon_factory=self._plugin_icon, actions=toggle_actions),
             StandardItem(id="info_total", text=f"Total entities: {len(entities)}",
@@ -1161,7 +1202,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
 
         def fetch():
             try:
-                response = requests.get(f"https://cdn.jsdelivr.net/npm/@mdi/svg/svg/{name}.svg", timeout=5)
+                response = self.session.get(f"https://cdn.jsdelivr.net/npm/@mdi/svg/svg/{name}.svg", timeout=5)
                 if response.status_code == 200:
                     cached.write_bytes(response.content)
             except requests.exceptions.RequestException as e:

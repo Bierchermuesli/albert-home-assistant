@@ -86,7 +86,7 @@ Start with a verb to act directly. Only entities the verb applies to are listed,
 | `fav [filter]` | Sonos favorites; Enter plays one on the group that is playing now, the other actions pick a group or player. Needs the Sonos integration. |
 | `todo [list] [text]` | To-do lists and their open items: complete, reopen, remove; offers to add the text when no open item matches. Without a list name it searches all lists. |
 | `shop milk` | Same as `todo shop milk` when the first word starts a list name. |
-| `info` | Active URL (with a switch between internal and public) and entity counts. |
+| `info` | Active URL (with a switch between internal and public), entity counts, and the last request slower than 1 s or retried over the other URL (shown for an hour, logged as well). |
 
 ### Steps
 
