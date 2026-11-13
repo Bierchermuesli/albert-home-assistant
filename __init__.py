@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import hashlib
 
 md_iid = "5.0"
-md_version = "3.12"
+md_version = "3.13"
 
 # Verb-first command mode: the first word of the query is a verb that restricts the candidate
 # domains, so "play office" never lists office lamps. (verb, domain) -> (service, label).
@@ -219,7 +219,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
     # --- plugin state
     headers = {}
     entities_cache = None
-    registry_names = {}  # entity id -> (entity name, device name, area name), see _get_entities
+    registry_names = {}  # entity id -> (entity name, device name, area name, device id), see _get_entities
     last_entities_fetch_time = 0
     active_url = ""
 
@@ -545,7 +545,7 @@ class Plugin(PluginInstance, RankedQueryHandler):
     REGISTRY_NAMES_TEMPLATE = (
         "{% set ns = namespace(r={}) %}{% for s in states %}"
         "{% set ns.r = dict(ns.r, **{s.entity_id: [entity_name(s.entity_id), device_name(s.entity_id),"
-        " area_name(s.entity_id)]}) %}{% endfor %}{{ ns.r | tojson }}")
+        " area_name(s.entity_id), device_id(s.entity_id)]}) %}{% endfor %}{{ ns.r | tojson }}")
 
     def _get_registry_names(self):
         """Names by entity id; empty when the template fails, e.g. before Home Assistant 2026.11."""
@@ -951,11 +951,15 @@ class Plugin(PluginInstance, RankedQueryHandler):
         """friendly_name, else device and entity name as Home Assistant composes them."""
         if name := entity.get("attributes", {}).get("friendly_name"):
             return name
-        entity_name, device_name, _ = self.registry_names.get(entity["entity_id"], (None, None, None))
+        entity_name, device_name = self.registry_names.get(entity["entity_id"], (None, None))[:2]
         return " ".join(n for n in (device_name, entity_name) if n) or entity["entity_id"]
 
     def _area(self, entity):
         return self.registry_names.get(entity["entity_id"], (None, None, None))[2] or ""
+
+    def _device_id(self, entity):
+        names = self.registry_names.get(entity["entity_id"], ())
+        return names[3] if len(names) > 3 else None
 
     @staticmethod
     def _format_state(state: str, unit: str | None) -> str:
@@ -1132,10 +1136,15 @@ class Plugin(PluginInstance, RankedQueryHandler):
             actions += steps
         # Any entity, over the active URL at the time of the action: internal at home, public
         # elsewhere. First for those without actions of their own (sensors): Enter opens it.
+        # The entity dialog has state, controls, history graph and logbook; it opens over the
+        # first view of the default dashboard, which every installation has.
+        actions.append(Action("open", "Open in Home Assistant",
+                              lambda: openUrl(f"{self.active_url}/lovelace/0?more-info-entity-id={entity_id}")))
         actions.append(Action("history", "Show history in Home Assistant",
                               lambda: openUrl(f"{self.active_url}/history?entity_id={entity_id}")))
-        actions.append(Action("logbook", "Show logbook in Home Assistant",
-                              lambda: openUrl(f"{self.active_url}/logbook?entity_id={entity_id}")))
+        if device_id := self._device_id(entity):
+            actions.append(Action("device", "Show device in Home Assistant",
+                                  lambda: openUrl(f"{self.active_url}/config/devices/device/{device_id}")))
         actions.append(Action("copy_entity_id", f"Copy '{entity_id}'", partial(setClipboardText, entity_id)))
         if domain not in STATELESS_DOMAINS:
             actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
