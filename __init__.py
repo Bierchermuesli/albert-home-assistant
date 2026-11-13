@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import hashlib
 
 md_iid = "5.0"
-md_version = "3.11"
+md_version = "3.12"
 
 # Verb-first command mode: the first word of the query is a verb that restricts the candidate
 # domains, so "play office" never lists office lamps. (verb, domain) -> (service, label).
@@ -1130,6 +1130,10 @@ class Plugin(PluginInstance, RankedQueryHandler):
                                       partial(self._call_service, service, {"entity_id": entity_id, **data})))
         if not steps_first:
             actions += steps
+        if domain in ("sensor", "binary_sensor"):
+            # The active URL at the time of the action: internal at home, public elsewhere.
+            actions.append(Action("history", "Show history in Home Assistant",
+                                  lambda: openUrl(f"{self.active_url}/history?entity_id={entity_id}")))
         actions.append(Action("copy_entity_id", f"Copy '{entity_id}'", partial(setClipboardText, entity_id)))
         if domain not in STATELESS_DOMAINS:
             actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
