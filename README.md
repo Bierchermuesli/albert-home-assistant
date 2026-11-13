@@ -11,6 +11,7 @@ View and control your [Home Assistant](https://www.home-assistant.io/) devices d
   - **light** toggle and brightness steps (+10% / -10%); exact values via `ha bright <name> <pct>`
   - **input_number** selection of steps
   - **cover** open/close
+  - **remote** toggle, the current activity in the subtext, one action per activity (for Android TV the apps set up in the options of the integration)
   - **all** open in Home Assistant over the active URL: the entity dialog (Enter for sensors), the history, the device
 - **Smart URL Switching**: Automatically switches between internal and public URLs based on connectivity.
 - **Hidden entities**: Whole domains a launcher cannot use are left out (`update, event, notify, ...` by default, e.g. add `device_tracker, number`), noisy ids by pattern (`*_rssi`, `media_player.*_ma`), and states like `unavailable`. Everything else stays searchable, sensors included.
@@ -74,9 +75,9 @@ Start with a verb to act directly. Only entities the verb applies to are listed,
 | `vol <name> [pct]` (or `volume`) | media player | set the volume; without a number the volume steps come first |
 | `bright <name> [pct]` (or `brightness`) | light | set the brightness; without a number the brightness steps come first |
 | `temp <name> [degrees]` | climate | set the target temperature, turning a device that is off on; without a number the temperature steps come first |
-| `on` | light, switch, fan, input boolean, scene, script, cover, media player, climate | turn on, activate, run, open, play |
-| `off` | light, switch, fan, input boolean, cover, media player, climate | turn off, close, stop |
-| `toggle` | light, switch, fan, input boolean, cover | toggle |
+| `on` | light, switch, fan, input boolean, scene, script, cover, media player, climate, remote | turn on, activate, run, open, play |
+| `off` | light, switch, fan, input boolean, cover, media player, climate, remote | turn off, close, stop |
+| `toggle` | light, switch, fan, input boolean, cover, remote | toggle |
 
 `on` lists only what is off and `off` only what is on, unless nothing else matches: a light group counts as on as soon as one of its lights is.
 

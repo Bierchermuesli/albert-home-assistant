@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import hashlib
 
 md_iid = "5.0"
-md_version = "3.13"
+md_version = "3.14"
 
 # Verb-first command mode: the first word of the query is a verb that restricts the candidate
 # domains, so "play office" never lists office lamps. (verb, domain) -> (service, label).
@@ -40,6 +40,7 @@ VERB_SERVICES = {
     ("on",         "cover"):         ("cover.open_cover",                  "Open {name}"),
     ("on",         "media_player"):  ("media_player.media_play",           "Play {name}"),
     ("on",         "climate"):       ("climate.turn_on",                   "Turn on {name}"),
+    ("on",         "remote"):        ("remote.turn_on",                    "Turn on {name}"),
     ("off",        "light"):         ("light.turn_off",                    "Turn off {name}"),
     ("off",        "switch"):        ("switch.turn_off",                   "Turn off {name}"),
     ("off",        "fan"):           ("fan.turn_off",                      "Turn off {name}"),
@@ -47,12 +48,14 @@ VERB_SERVICES = {
     ("off",        "cover"):         ("cover.close_cover",                 "Close {name}"),
     ("off",        "media_player"):  ("media_player.media_stop",           "Stop {name}"),
     ("off",        "climate"):       ("climate.turn_off",                  "Turn off {name}"),
+    ("off",        "remote"):        ("remote.turn_off",                   "Turn off {name}"),
     ("temp",       "climate"):       ("climate.set_temperature",           "Set {name} to {value}°"),
     ("toggle",     "light"):         ("light.toggle",                      "Toggle {name}"),
     ("toggle",     "switch"):        ("switch.toggle",                     "Toggle {name}"),
     ("toggle",     "fan"):           ("fan.toggle",                        "Toggle {name}"),
     ("toggle",     "input_boolean"): ("input_boolean.toggle",              "Toggle {name}"),
     ("toggle",     "cover"):         ("cover.toggle",                      "Toggle {name}"),
+    ("toggle",     "remote"):        ("remote.toggle",                     "Toggle {name}"),
 }
 
 VERB_DOMAINS = {}
@@ -1076,6 +1079,17 @@ class Plugin(PluginInstance, RankedQueryHandler):
                        partial(self._call_service, "climate.set_hvac_mode", {"entity_id": entity_id, "hvac_mode": mode}))
                 for mode in entity.get("attributes", {}).get("hvac_modes", []) if mode != entity.get("state")]
 
+    def _remote_actions(self, entity):
+        """Toggle, then one action per activity (an app for Android TV, set up in the options of
+        the integration), the current one left out."""
+        entity_id = entity["entity_id"]
+        attributes = entity.get("attributes", {})
+        actions = [Action("toggle", "Toggle", partial(self._call_service, "remote.toggle", {"entity_id": entity_id}))]
+        actions += [Action(f"activity_{activity}", f"Start {activity}",
+                           partial(self._call_service, "remote.turn_on", {"entity_id": entity_id, "activity": activity}))
+                    for activity in attributes.get("activity_list") or [] if activity != attributes.get("current_activity")]
+        return actions
+
     def _select_actions(self, entity):
         """One action per option of a select, the current one left out."""
         entity_id = entity["entity_id"]
@@ -1128,6 +1142,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
             actions += self._climate_actions(entity)
         elif domain in ("select", "input_select"):
             actions += self._select_actions(entity)
+        elif domain == "remote":
+            actions += self._remote_actions(entity)
         else:
             for action_id, label, service, data in DOMAIN_ACTIONS.get(domain, []):
                 actions.append(Action(action_id, label,
@@ -1178,6 +1194,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
                 subtext += f" · {current:g}°" + (f" → {target:g}°" if target is not None else "")
             if attributes.get("hvac_action") not in (None, "off", "idle"):
                 subtext += f" · {attributes['hvac_action']}"
+        elif domain == "remote" and state == "on" and attributes.get("current_activity"):
+            subtext += f" · {attributes['current_activity']}"
         return subtext
 
     # --- icons --------------------------------------------------------------------------------
