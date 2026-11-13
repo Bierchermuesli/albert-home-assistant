@@ -1134,6 +1134,8 @@ class Plugin(PluginInstance, RankedQueryHandler):
         # elsewhere. First for those without actions of their own (sensors): Enter opens it.
         actions.append(Action("history", "Show history in Home Assistant",
                               lambda: openUrl(f"{self.active_url}/history?entity_id={entity_id}")))
+        actions.append(Action("logbook", "Show logbook in Home Assistant",
+                              lambda: openUrl(f"{self.active_url}/logbook?entity_id={entity_id}")))
         actions.append(Action("copy_entity_id", f"Copy '{entity_id}'", partial(setClipboardText, entity_id)))
         if domain not in STATELESS_DOMAINS:
             actions.append(Action("copy_state", f"Copy '{formatted_state}'", partial(setClipboardText, formatted_state)))
